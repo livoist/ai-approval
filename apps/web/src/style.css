@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+
+/*
+ * 設計變數（design tokens）：整個專案的樣式都從這裡來
+ *
+ * 在 @theme 裡定義 --color-xxx，Tailwind 就會自動產生對應的 class：
+ *   --color-accent  →  bg-accent、text-accent、border-accent……
+ *   --color-danger  →  bg-danger、text-danger……
+ *
+ * 要換品牌色、改成深色主題，只要改這一區，元件完全不用動
+ */
+@theme {
+  --font-sans: system-ui, -apple-system, 'PingFang TC', 'Noto Sans TC', sans-serif;
+
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-border: #e2e5ea;
+  --color-ink: #1d2330;
+  --color-muted: #667085;
+
+  --color-accent: #2563eb;
+  --color-accent-soft: #e8efff;
+  --color-danger: #c2410c;
+  --color-danger-soft: #fff1e8;
+  --color-warning: #a16207;
+  --color-warning-soft: #fef7e0;
+  --color-ok: #15803d;
+  --color-ok-soft: #e9f7ee;
+  --color-highlight: #fff3a8;
+
+  /* 點引用時條文外框閃一下的動畫，用法：class="animate-flash" */
+  --animate-flash: flash 0.8s ease-out;
+  @keyframes flash {
+    0% {
+      box-shadow: 0 0 0 3px var(--color-accent);
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+}
+
+/* 全站的基本樣式 */
+@layer base {
+  body {
+    @apply bg-bg font-sans text-ink;
+  }
+  /* Tailwind v4 的邊框預設是文字顏色，這裡統一改成淺灰 */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+}
+
+/*
+ * 重複出現的元件樣式：用 @apply 把一組 Tailwind class 取一個名字
+ * 原則：只有「到處都會用、而且長得一樣」的才放這裡，其他直接在元件上寫 class
+ */
+@layer components {
+  .card {
+    @apply rounded-xl border bg-surface px-5 py-4;
+  }
+  .badge {
+    @apply inline-block rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent;
+  }
+  .btn {
+    @apply cursor-pointer rounded-md border bg-surface px-3.5 py-1.5 hover:bg-bg disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply border-accent bg-accent text-white hover:bg-accent/90;
+  }
+  .field {
+    @apply w-full rounded-md border px-2.5 py-1.5 focus:border-accent focus:outline-none;
+  }
+}

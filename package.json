@@ -8,6 +8,7 @@
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "dev:server": "pnpm --filter @ai-approval/server dev"
+    "dev:server": "pnpm --filter @ai-approval/server dev",
+    "dev:web": "pnpm --filter @ai-approval/web dev"
   }
 }

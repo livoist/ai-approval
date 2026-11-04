@@ -1,0 +1,11 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import RequestDetail from './views/RequestDetail.vue'
+import RequestList from './views/RequestList.vue'
+
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', component: RequestList },
+    { path: '/requests/:id', component: RequestDetail, props: true },
+  ],
+})
