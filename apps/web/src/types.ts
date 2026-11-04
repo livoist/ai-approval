@@ -15,6 +15,11 @@ export interface ApprovalRequest {
   updatedAt: string
 }
 
+// 清單頁的資料：申請單 + 目前版本的風險等級（還沒預審的是 null）
+export interface RequestSummary extends ApprovalRequest {
+  riskLevel: 'low' | 'medium' | 'high' | null
+}
+
 export interface AuditEvent {
   id: string
   actor: { id: string; role: ActorRole }

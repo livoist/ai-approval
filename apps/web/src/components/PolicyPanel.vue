@@ -31,9 +31,12 @@ watch(
 
 <template>
   <!-- sticky：頁面往下捲時，規範面板固定在畫面上，方便邊看預審邊對照原文 -->
-  <aside class="card sticky top-6">
+  <!-- 只有寬螢幕並排時才固定：手機上它排在預審結果下面，固定反而會擋住內容
+       top-20：避開上方固定的 header，不然捲動時會被它蓋住 -->
+  <aside class="card lg:sticky lg:top-20">
     <h3 class="mb-3 font-semibold">{{ policies[0]?.docTitle ?? '規範文件' }}</h3>
-    <div class="max-h-[70vh] overflow-y-auto">
+    <!-- 寬螢幕：高度扣掉 header 與上下間距，長文件在面板內捲動，不會超出畫面 -->
+    <div class="lg:max-h-[calc(100vh-12rem)] lg:overflow-y-auto">
       <p
         v-for="p in policies"
         :key="p.id"

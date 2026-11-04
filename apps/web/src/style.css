@@ -61,9 +61,6 @@
   .card {
     @apply rounded-xl border bg-surface px-5 py-4;
   }
-  .badge {
-    @apply inline-block rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent;
-  }
   .btn {
     @apply cursor-pointer rounded-md border bg-surface px-3.5 py-1.5 hover:bg-bg disabled:cursor-not-allowed disabled:opacity-50;
   }

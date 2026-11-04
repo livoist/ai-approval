@@ -6,7 +6,9 @@ import ActionButtons from '../components/ActionButtons.vue'
 import PolicyPanel from '../components/PolicyPanel.vue'
 import RequestForm from '../components/RequestForm.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
-import { ERROR_LABEL, EVENT_LABEL, STATUS_LABEL } from '../labels'
+import StatusBadge from '../components/StatusBadge.vue'
+import { ERROR_LABEL, EVENT_LABEL } from '../labels'
+import { formatDateTime } from '../time'
 import { currentUser } from '../session'
 import type { PolicyChunk, RequestDetail, ReviewFinding } from '../types'
 
@@ -136,30 +138,57 @@ async function save(title: string, fields: FormValues) {
   }
 }
 
+// 第一次載入失敗（例如網址裡的 id 不存在），顯示錯誤頁而不是一直轉「載入中」
+const loadError = ref<string | null>(null)
+
 onMounted(async () => {
-  // 先載入申請單，才知道要拿哪一份規範文件
-  await load()
-  if (request.value) policies.value = await api.listPolicies(request.value.formType)
-  if (reviewing.value) startStream()
+  try {
+    // 先載入申請單，才知道要拿哪一份規範文件
+    await load()
+    if (request.value) policies.value = await api.listPolicies(request.value.formType)
+    if (reviewing.value) startStream()
+  } catch (e) {
+    loadError.value =
+      e instanceof ApiError && e.reason === 'not_found'
+        ? '找不到這張申請單，可能網址有誤。'
+        : '無法載入申請單，請確認後端伺服器是否啟動。'
+  }
 })
 // 離開頁面一定要關掉連線，不然後端會一直以為有人在看
 onUnmounted(stopStream)
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleString('zh-TW', { hour12: false })
-}
 </script>
 
 <template>
-  <p v-if="!request" class="text-muted">載入中……</p>
+  <div v-if="loadError" class="card mx-auto max-w-md py-10 text-center">
+    <p class="font-medium">{{ loadError }}</p>
+    <RouterLink to="/" class="btn mt-4 inline-block text-sm">回到申請單清單</RouterLink>
+  </div>
+
+  <!-- 載入中：骨架畫面的版面跟真正的頁面一樣，資料出現時不會跳動 -->
+  <div
+    v-else-if="!request"
+    class="grid animate-pulse items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
+    aria-busy="true"
+  >
+    <div class="grid gap-4">
+      <div class="card grid gap-3">
+        <span class="h-6 w-1/2 rounded bg-bg" />
+        <span class="h-3 w-1/3 rounded bg-bg" />
+        <span class="h-20 rounded bg-bg" />
+      </div>
+      <div class="card h-40" />
+    </div>
+    <div class="card h-64" />
+  </div>
 
   <!-- 寬螢幕時左 3 右 2 並排；items-start 讓右邊的 sticky 面板正常運作 -->
   <div v-else class="grid items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
     <div class="grid gap-4">
       <section class="card">
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2 class="text-xl font-semibold">{{ request.title }}</h2>
-          <span class="badge" data-testid="status">{{ STATUS_LABEL[request.status] }}</span>
+          <StatusBadge :status="request.status" data-testid="status" />
         </div>
         <p class="mt-1 text-sm text-muted">
           {{ formDef?.title }} · 申請人 {{ request.applicantId }} · 第 {{ request.version }} 版
@@ -179,7 +208,7 @@ function formatTime(iso: string) {
         </div>
 
         <!-- 檢視模式：欄位用「標籤：值」的表格呈現 -->
-        <dl v-else class="my-4 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dl v-else class="my-4 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
           <template v-for="d in details" :key="d.label">
             <dt class="text-muted">{{ d.label }}</dt>
             <dd class="whitespace-pre-wrap">{{ d.value }}</dd>
@@ -213,12 +242,15 @@ function formatTime(iso: string) {
       <section class="card">
         <h3 class="mb-3 font-semibold">簽核紀錄</h3>
         <ol class="grid gap-2">
+          <!-- 手機上時間獨立一行；寬螢幕時三欄對齊 -->
           <li
             v-for="h in request.history"
             :key="h.id"
-            class="grid grid-cols-[160px_auto_1fr] gap-3 text-sm"
+            class="grid grid-cols-[auto_1fr] gap-x-3 text-sm sm:grid-cols-[160px_auto_1fr]"
           >
-            <span class="text-muted">{{ formatTime(h.at) }}</span>
+            <span class="col-span-2 text-xs text-muted sm:col-span-1 sm:text-sm">
+              {{ formatDateTime(h.at) }}
+            </span>
             <strong>{{ EVENT_LABEL[h.event] }}</strong>
             <span class="text-muted">{{ h.actor.role === 'system' ? 'AI' : h.actor.id }}</span>
           </li>

@@ -137,3 +137,22 @@ test('第二種申請單：費用報銷用自己的表單、規則與規範文�
   await expect(page.getByTestId('policy-fin-5.1')).toHaveClass(/bg-highlight/)
   await expect(page.getByTestId('policy-sop-4.2')).toHaveCount(0)
 })
+
+test('清單：主管預設看到待我簽核，附風險等級與等待時間', async ({ page }) => {
+  await createAndSubmit(page, '高壓・資料不全')
+
+  await switchUser(page, 'manager')
+  await page.goto('/')
+
+  // 主管不會看到新增申請的表單
+  await expect(page.getByRole('heading', { name: '新增申請' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /待我簽核/ })).toHaveAttribute('aria-pressed', 'true')
+
+  const row = page.getByRole('link', { name: /3 號產線高壓馬達維修/ }).first()
+  await expect(row).toContainText('高風險')
+  await expect(row).toContainText('已等待')
+
+  // 篩選成費用報銷：這張設備維修單就不會出現
+  await page.getByLabel('申請類型').selectOption('expense')
+  await expect(page.getByRole('link', { name: /3 號產線高壓馬達維修/ })).toHaveCount(0)
+})

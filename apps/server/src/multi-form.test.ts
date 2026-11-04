@@ -83,3 +83,15 @@ describe('多種申請單', () => {
     expect(service.getRequest(r.id)?.formType).toBe('expense')
   })
 })
+
+describe('清單摘要', () => {
+  it('每張單附上目前版本的風險等級；還沒預審的是 null', async () => {
+    const draft = mustCreate(service, alice, COMPLETE_EXPENSE, '草稿', 'expense')
+    const reviewed = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
+    await submitAndReview(reviewed.id)
+
+    const byId = Object.fromEntries(service.listSummaries().map((r) => [r.id, r.riskLevel]))
+    expect(byId[draft.id]).toBe(null)
+    expect(byId[reviewed.id]).toBe('low')
+  })
+})

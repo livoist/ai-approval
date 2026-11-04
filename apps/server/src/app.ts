@@ -77,7 +77,7 @@ export function createApp(service: RequestService) {
 
   // 列出所有申請單
   app.get('/requests', (_req, res) => {
-    res.json(service.listRequests())
+    res.json(service.listSummaries())
   })
 
   // 建立新申請單（草稿）：只有申請人可以

@@ -370,8 +370,18 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     return { ok: true, feedback }
   }
 
+  // 清單頁用：每張單附上目前版本的風險等級，主管才能一眼決定先看哪張
+  // 還沒預審過（草稿）或預審失敗的單，風險等級是 null
+  function listSummaries() {
+    return store.listRequests().map((r) => ({
+      ...r,
+      riskLevel: getLatestReview(r.id)?.riskLevel ?? null,
+    }))
+  }
+
   return {
     createRequest,
+    listSummaries,
     updateRequest,
     sendEvent,
     subscribe,
