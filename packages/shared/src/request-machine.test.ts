@@ -48,6 +48,27 @@ describe('transition', () => {
       next: 'draft',
     })
   })
+
+  it('申請人可以撤回待簽核的單', () => {
+    expect(transition('pending_approval', 'WITHDRAW', 'applicant')).toEqual({
+      ok: true,
+      next: 'withdrawn',
+    })
+  })
+
+  it('申請人可以撤回被要求補件的單', () => {
+    expect(transition('needs_info', 'WITHDRAW', 'applicant')).toEqual({
+      ok: true,
+      next: 'withdrawn',
+    })
+  })
+
+  it('主管不能替申請人撤回', () => {
+    expect(transition('pending_approval', 'WITHDRAW', 'approver')).toEqual({
+      ok: false,
+      reason: 'forbidden',
+    })
+  })
 })
 
 describe('availableEvents', () => {
@@ -59,15 +80,20 @@ describe('availableEvents', () => {
     ])
   })
 
-  it('申請人在待簽核狀態什麼都不能做', () => {
-    expect(availableEvents('pending_approval', 'applicant')).toEqual([])
+  it('申請人在待簽核狀態只能撤回', () => {
+    expect(availableEvents('pending_approval', 'applicant')).toEqual(['WITHDRAW'])
+  })
+
+  it('申請人在補件狀態可以重送或撤回', () => {
+    expect(availableEvents('needs_info', 'applicant')).toEqual(['RESUBMIT', 'WITHDRAW'])
   })
 })
 
 describe('isFinal', () => {
-  it('核准與退回是終點', () => {
+  it('核准、退回、撤回都是終點', () => {
     expect(isFinal('approved')).toBe(true)
     expect(isFinal('rejected')).toBe(true)
+    expect(isFinal('withdrawn')).toBe(true)
     expect(isFinal('draft')).toBe(false)
   })
 })

@@ -20,6 +20,8 @@ export const TRANSITIONS: readonly Transition[] = [
   { from: 'pending_approval', event: 'REJECT', to: 'rejected', allowedRoles: ['approver'] },
   { from: 'pending_approval', event: 'REQUEST_INFO', to: 'needs_info', allowedRoles: ['approver'] },
   { from: 'needs_info', event: 'RESUBMIT', to: 'reviewing', allowedRoles: ['applicant'] },
+  { from: 'pending_approval', event: 'WITHDRAW', to: 'withdrawn', allowedRoles: ['applicant'] },
+  { from: 'needs_info', event: 'WITHDRAW', to: 'withdrawn', allowedRoles: ['applicant'] },
 ]
 
 // 回傳值用「成功或失敗」的物件，而不是丟出例外（throw）

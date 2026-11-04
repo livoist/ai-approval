@@ -7,6 +7,7 @@ export type RequestStatus =
   | 'needs_info' // 主管要求補件
   | 'approved' // 已核准（終點）
   | 'rejected' // 已退回（終點）
+  | 'withdrawn' // 已撤回（終點）
 
 // 會讓狀態改變的「事件」
 // 狀態機的核心觀念：狀態不是被直接「設定」的，而是由事件「推動」的
@@ -18,6 +19,6 @@ export type RequestEvent =
   | 'REJECT' // 主管退回
   | 'REQUEST_INFO' // 主管要求補件
   | 'RESUBMIT' // 申請人補件後重送
-
+  | 'WITHDRAW' // 申請人撤回
 // 誰在觸發事件；'system' 代表後端自己（例如 AI 預審跑完）
 export type ActorRole = 'applicant' | 'approver' | 'system'
