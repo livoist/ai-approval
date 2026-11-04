@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { mustCreate, COMPLETE_LOW_VOLTAGE, INCOMPLETE_HIGH_VOLTAGE, alice, manager } from './fixtures'
 import { POLICY_CHUNKS } from './policies'
-import { createRequestService, type CurrentUser } from './request-service'
+import { createRequestService } from './request-service'
 import { mockReviewer, validateCitations, type Reviewer } from './reviewer'
 import { createStore } from './store'
-
-const alice: CurrentUser = { id: 'alice', role: 'applicant' }
-const manager: CurrentUser = { id: 'manager', role: 'approver' }
 
 describe('validateCitations', () => {
   it('剔除不存在的條文 id（AI 幻覺）', () => {
@@ -24,7 +22,7 @@ describe('validateCitations', () => {
 describe('AI 預審流程', () => {
   it('送出後自動預審，完成後進入待簽核', async () => {
     const service = createRequestService(createStore(), mockReviewer)
-    const r = service.createRequest(alice, { title: '高壓設備維修', description: '馬達異音' })
+    const r = mustCreate(service, alice, INCOMPLETE_HIGH_VOLTAGE)
 
     const submitted = service.sendEvent(r.id, 'SUBMIT', alice)
     expect(submitted).toMatchObject({ ok: true, request: { status: 'reviewing' } })
@@ -45,7 +43,7 @@ describe('AI 預審流程', () => {
       },
     }
     const service = createRequestService(createStore(), broken)
-    const r = service.createRequest(alice, { title: '維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     service.sendEvent(r.id, 'SUBMIT', alice)
     await service.waitForReview(r.id)
 
@@ -58,7 +56,7 @@ describe('AI 預審流程', () => {
 
     // 模擬重啟前：送出後、還沒審完伺服器就停了（沒有 reviewer，所以不會自動預審）
     const before = createRequestService(store)
-    const r = before.createRequest(alice, { title: '高壓設備維修', description: '' })
+    const r = mustCreate(before, alice, INCOMPLETE_HIGH_VOLTAGE)
     before.sendEvent(r.id, 'SUBMIT', alice)
     expect(before.getRequest(r.id)?.status).toBe('reviewing')
 
@@ -80,7 +78,7 @@ describe('AI 預審流程', () => {
         }),
     }
     const service = createRequestService(createStore(), slow)
-    const r = service.createRequest(alice, { title: '維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     service.sendEvent(r.id, 'SUBMIT', alice)
 
     // AI 還在想的時候，主管不能核准（還沒輪到他）

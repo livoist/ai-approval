@@ -1,12 +1,20 @@
-import { createSseParser, type RequestEvent } from '@ai-approval/shared'
+import { createSseParser, type FormValues, type RequestEvent } from '@ai-approval/shared'
 import { currentUser } from './session'
-import type { ApprovalRequest, PolicyChunk, RequestDetail, ReviewStreamEvent } from './types'
+import type {
+  ApprovalRequest,
+  FindingFeedback,
+  PolicyChunk,
+  RequestDetail,
+  ReviewStreamEvent,
+} from './types'
 
 // 後端回傳的錯誤，保留狀態碼與原因，讓畫面可以顯示對應的訊息
 export class ApiError extends Error {
   constructor(
     public status: number,
     public reason: string,
+    // 表單驗證失敗時，後端會回傳每個欄位的錯誤訊息
+    public fieldErrors: Record<string, string> = {},
   ) {
     super(`${status} ${reason}`)
   }
@@ -23,21 +31,33 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
   })
   const body = await res.json().catch(() => null)
-  if (!res.ok) throw new ApiError(res.status, body?.error ?? 'unknown')
+  if (!res.ok) throw new ApiError(res.status, body?.error ?? 'unknown', body?.fieldErrors)
   return body as T
 }
 
 export const api = {
   listRequests: () => call<ApprovalRequest[]>('/requests'),
   getRequest: (id: string) => call<RequestDetail>(`/requests/${id}`),
-  createRequest: (input: { title: string; description: string }) =>
+  createRequest: (input: { title: string; fields: FormValues }) =>
     call<ApprovalRequest>('/requests', { method: 'POST', body: JSON.stringify(input) }),
+  updateRequest: (id: string, input: { title: string; fields: FormValues }) =>
+    call<ApprovalRequest>(`/requests/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   sendEvent: (id: string, event: RequestEvent) =>
     call<ApprovalRequest>(`/requests/${id}/events`, {
       method: 'POST',
       body: JSON.stringify({ event }),
     }),
   listPolicies: () => call<PolicyChunk[]>('/policies'),
+  giveFeedback: (
+    id: string,
+    reviewId: string,
+    index: number,
+    input: { verdict: FindingFeedback['verdict']; note: string },
+  ) =>
+    call<FindingFeedback>(`/requests/${id}/reviews/${reviewId}/findings/${index}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   streamReview,
 }
 

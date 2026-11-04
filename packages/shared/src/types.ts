@@ -20,5 +20,9 @@ export type RequestEvent =
   | 'REQUEST_INFO' // 主管要求補件
   | 'RESUBMIT' // 申請人補件後重送
   | 'WITHDRAW' // 申請人撤回
+
+// 不屬於狀態轉換、但要留下紀錄的動作
+// 例如修改申請內容：狀態不會變，但「誰在什麼時候改了」一定要查得到
+export type AuditAction = RequestEvent | 'CREATE' | 'UPDATE'
 // 誰在觸發事件；'system' 代表後端自己（例如 AI 預審跑完）
 export type ActorRole = 'applicant' | 'approver' | 'system'

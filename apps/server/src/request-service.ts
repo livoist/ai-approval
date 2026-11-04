@@ -1,8 +1,20 @@
 import { randomUUID } from 'node:crypto'
-import { transition, type ActorRole, type RequestEvent, type RequestStatus } from '@ai-approval/shared'
+import {
+  MAINTENANCE_FORM,
+  describeValues,
+  normalizeValues,
+  runRules,
+  transition,
+  validateValues,
+  type ActorRole,
+  type Finding,
+  type FormValues,
+  type RequestEvent,
+  type RequestStatus,
+} from '@ai-approval/shared'
 import { POLICY_CHUNKS } from './policies'
-import { validateCitations, validateFinding, type ReviewFinding, type Reviewer } from './reviewer'
-import type { ApprovalRequest, Store } from './store'
+import { validateCitations, validateFinding, type Reviewer } from './reviewer'
+import type { ApprovalRequest, FindingFeedback, Store } from './store'
 
 export interface CurrentUser {
   id: string
@@ -10,10 +22,10 @@ export interface CurrentUser {
 }
 
 // 推播給前端的事件：
-// - finding：AI 剛審出一條意見
+// - finding：剛審出一條意見（規則引擎的會立刻出現，AI 的陸續出現）
 // - status：申請單狀態變了（前端看到不是 reviewing 了，就知道可以收工）
 export type ReviewStreamEvent =
-  | { type: 'finding'; version: number; finding: ReviewFinding }
+  | { type: 'finding'; version: number; finding: Finding }
   | { type: 'status'; status: RequestStatus }
 
 type Listener = (event: ReviewStreamEvent) => void
@@ -23,6 +35,17 @@ const AI_ACTOR: CurrentUser = { id: 'ai-reviewer', role: 'system' }
 
 // AI 超過這個時間還沒回應就放棄，走預審失敗的流程，不讓申請單卡在 reviewing
 const REVIEW_TIMEOUT_MS = 60_000
+
+type RiskLevel = 'low' | 'medium' | 'high'
+const RISK_ORDER: RiskLevel[] = ['low', 'medium', 'high']
+const maxRisk = (a: RiskLevel, b: RiskLevel) => (RISK_ORDER.indexOf(a) >= RISK_ORDER.indexOf(b) ? a : b)
+
+// 規則引擎的風險：缺少規範要求的東西 → 高；有安全疑慮 → 中；只是流程提醒 → 低
+function riskFromRules(findings: Finding[]): RiskLevel {
+  if (findings.some((f) => f.kind === 'missing')) return 'high'
+  if (findings.some((f) => f.kind === 'risk')) return 'medium'
+  return 'low'
+}
 
 // 業務邏輯層：只關心「規則」，完全不知道 HTTP、Express 的存在
 // reviewer 是選填的：沒給的話就不會自動預審（舊的測試可以照常手動推進狀態）
@@ -35,7 +58,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
 
   // 預審進行中、已經審出來的意見
   // 晚一點才打開頁面的人，要先補發這些，不然會漏掉前面幾條
-  const inProgress = new Map<string, { version: number; findings: ReviewFinding[] }>()
+  const inProgress = new Map<string, { version: number; findings: Finding[] }>()
 
   function publish(requestId: string, event: ReviewStreamEvent) {
     listeners.get(requestId)?.forEach((listener) => listener(event))
@@ -64,12 +87,36 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     }
   }
 
-  function createRequest(user: CurrentUser, input: { title: string; description: string }) {
+  // 用表單定義檢查填寫內容：格式錯誤一律擋下，不讓不合法的資料進資料庫
+  // 跟前端用的是同一個 validateValues，所以前端擋得住的，後端一定也擋得住
+  type FormInput = { title: string; fields: FormValues }
+  type FormCheck =
+    | { ok: true; title: string; fields: FormValues }
+    | { ok: false; reason: 'invalid_fields'; fieldErrors: Record<string, string> }
+
+  function checkForm(input: FormInput): FormCheck {
+    const fieldErrors = validateValues(MAINTENANCE_FORM, input.fields)
+    if (input.title.trim() === '') fieldErrors.title = '請填寫標題'
+    if (Object.keys(fieldErrors).length > 0) return { ok: false, reason: 'invalid_fields', fieldErrors }
+    return { ok: true, title: input.title.trim(), fields: normalizeValues(MAINTENANCE_FORM, input.fields) }
+  }
+
+  type CreateResult =
+    | { ok: true; request: ApprovalRequest }
+    | { ok: false; reason: 'forbidden' }
+    | Extract<FormCheck, { ok: false }>
+
+  function createRequest(user: CurrentUser, input: FormInput): CreateResult {
+    if (user.role !== 'applicant') return { ok: false, reason: 'forbidden' }
+    const form = checkForm(input)
+    if (!form.ok) return form
+
     const now = new Date().toISOString()
     const request: ApprovalRequest = {
       id: randomUUID(),
-      title: input.title,
-      description: input.description,
+      formType: MAINTENANCE_FORM.id,
+      title: form.title,
+      fields: form.fields,
       applicantId: user.id,
       status: 'draft',
       version: 1,
@@ -86,7 +133,41 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       to: 'draft',
       at: now,
     })
-    return request
+    return { ok: true, request }
+  }
+
+  type UpdateResult =
+    | { ok: true; request: ApprovalRequest }
+    | { ok: false; reason: 'not_found' | 'forbidden' | 'invalid_transition' }
+    | Extract<FormCheck, { ok: false }>
+
+  // 修改申請內容：只有申請人本人、而且只在「草稿」或「待補件」時可以改
+  // 這不是狀態轉換（改完狀態不變），但一樣要留下紀錄
+  function updateRequest(requestId: string, user: CurrentUser, input: FormInput): UpdateResult {
+    const request = store.getRequest(requestId)
+    if (!request) return { ok: false, reason: 'not_found' }
+    if (user.role !== 'applicant' || request.applicantId !== user.id) {
+      return { ok: false, reason: 'forbidden' }
+    }
+    if (request.status !== 'draft' && request.status !== 'needs_info') {
+      return { ok: false, reason: 'invalid_transition' }
+    }
+    const form = checkForm(input)
+    if (!form.ok) return form
+
+    const now = new Date().toISOString()
+    const updated: ApprovalRequest = { ...request, title: form.title, fields: form.fields, updatedAt: now }
+    store.saveRequest(updated)
+    store.appendAudit({
+      id: randomUUID(),
+      requestId,
+      actor: user,
+      event: 'UPDATE',
+      from: request.status,
+      to: request.status,
+      at: now,
+    })
+    return { ok: true, request: updated }
   }
 
   type SendEventResult =
@@ -139,31 +220,45 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     const request = store.getRequest(requestId)
     if (!request) return
 
-    const buffer = { version, findings: [] as ReviewFinding[] }
+    const buffer = { version, findings: [] as Finding[] }
     inProgress.set(requestId, buffer)
+    const emit = (finding: Finding) => {
+      buffer.findings.push(finding)
+      publish(requestId, { type: 'finding', version, finding })
+    }
+
+    // 第一步：規則引擎。純程式判斷、瞬間完成，所以這些意見會最先出現在畫面上
+    const ruleFindings = runRules(request.fields)
+    ruleFindings.forEach(emit)
 
     let outcome: 'done' | 'failed'
     try {
+      // 第二步：AI。只負責規則做不到的模糊判斷，並且知道規則已經查到什麼，避免重複
       const raw = await reviewer.review(
-        { title: request.title, description: request.description },
+        {
+          title: request.title,
+          values: request.fields,
+          details: describeValues(MAINTENANCE_FORM, request.fields),
+          ruleFindings,
+        },
         POLICY_CHUNKS,
         {
           signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
-          // 每審出一條：先驗證引用，再存進暫存區、推播給正在看的人
-          onFinding: (f) => {
-            const finding = validateFinding(f, POLICY_CHUNKS)
-            buffer.findings.push(finding)
-            publish(requestId, { type: 'finding', version, finding })
-          },
+          // 每審出一條：先驗證引用、標上來源，再推播給正在看的人
+          onFinding: (f) => emit({ ...validateFinding(f, POLICY_CHUNKS), source: 'ai' }),
         },
       )
-      const output = validateCitations(raw, POLICY_CHUNKS)
+      const ai = validateCitations(raw, POLICY_CHUNKS)
+
+      // 合併：規則的意見在前、AI 的在後；風險等級取兩邊較高的那一個
       store.appendReview({
         id: randomUUID(),
         requestId,
         requestVersion: version,
         status: 'done',
-        ...output,
+        riskLevel: maxRisk(riskFromRules(ruleFindings), ai.riskLevel),
+        summary: ai.summary,
+        findings: [...ruleFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
         reviewer: reviewer.name,
         createdAt: new Date().toISOString(),
       })
@@ -204,22 +299,70 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     return stuck.length
   }
 
-  // 取得「對應目前版本」的最新預審結果
+  // 取得「對應目前版本」的最新預審結果，並在每條意見附上主管最新的評價
   function getLatestReview(requestId: string) {
     const request = store.getRequest(requestId)
     if (!request) return undefined
-    return store
+    const review = store
       .listReviews(requestId)
       .filter((r) => r.requestVersion === request.version)
       .at(-1)
+    if (!review) return undefined
+
+    // 同一條意見可能被標記過好幾次（改主意），後寫的覆蓋先寫的
+    const latest = new Map<number, FindingFeedback>()
+    for (const f of store.listFeedback(review.id)) latest.set(f.findingIndex, f)
+
+    return {
+      ...review,
+      findings: review.findings?.map((finding, i) => ({ ...finding, feedback: latest.get(i) ?? null })),
+    }
+  }
+
+  type FeedbackResult =
+    | { ok: true; feedback: FindingFeedback }
+    | { ok: false; reason: 'not_found' | 'forbidden' | 'note_required' }
+
+  // 主管評價 AI 的某一條意見
+  // 這不是狀態轉換（不會改變申請單走到哪一步），所以不經過狀態機，規則寫在這裡
+  function giveFeedback(
+    requestId: string,
+    reviewId: string,
+    findingIndex: number,
+    user: CurrentUser,
+    input: { verdict: FindingFeedback['verdict']; note: string },
+  ): FeedbackResult {
+    if (user.role !== 'approver') return { ok: false, reason: 'forbidden' }
+
+    // 這次預審必須屬於這張申請單、而且真的有這一條意見
+    const review = store.listReviews(requestId).find((r) => r.id === reviewId)
+    if (!review?.findings?.[findingIndex]) return { ok: false, reason: 'not_found' }
+
+    // 說 AI 錯了，就要說出錯在哪：沒有理由的「錯」沒辦法拿來改進 AI
+    const note = input.note.trim()
+    if (input.verdict === 'incorrect' && note === '') return { ok: false, reason: 'note_required' }
+
+    const feedback: FindingFeedback = {
+      id: randomUUID(),
+      reviewId,
+      findingIndex,
+      verdict: input.verdict,
+      note,
+      actorId: user.id,
+      createdAt: new Date().toISOString(),
+    }
+    store.appendFeedback(feedback)
+    return { ok: true, feedback }
   }
 
   return {
     createRequest,
+    updateRequest,
     sendEvent,
     subscribe,
     resumeInterruptedReviews,
     getLatestReview,
+    giveFeedback,
     getRequest: (id: string) => store.getRequest(id),
     listRequests: () => store.listRequests(),
     getHistory: (id: string) => store.listAudit(id),

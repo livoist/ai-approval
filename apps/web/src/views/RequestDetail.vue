@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { RequestEvent } from '@ai-approval/shared'
+import { MAINTENANCE_FORM, describeValues, type FormValues, type RequestEvent } from '@ai-approval/shared'
 import { ApiError, api } from '../api'
 import ActionButtons from '../components/ActionButtons.vue'
 import PolicyPanel from '../components/PolicyPanel.vue'
+import RequestForm from '../components/RequestForm.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import { ERROR_LABEL, EVENT_LABEL, STATUS_LABEL } from '../labels'
 import { currentUser } from '../session'
@@ -74,11 +75,64 @@ async function send(event: RequestEvent) {
   }
 }
 
+const feedbackBusy = ref(false)
+
+// 主管評價 AI 的某一條意見，送出後重新載入，畫面就會顯示最新的評價
+async function giveFeedback(index: number, verdict: 'correct' | 'incorrect', note: string) {
+  const review = request.value?.review
+  if (!review) return
+  feedbackBusy.value = true
+  error.value = null
+  try {
+    await api.giveFeedback(props.id, review.id, index, { verdict, note })
+    await load()
+  } catch (e) {
+    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+  } finally {
+    feedbackBusy.value = false
+  }
+}
+
 const canAct = computed(
   () =>
     currentUser.value.role === 'approver' ||
     request.value?.applicantId === currentUser.value.id,
 )
+
+// 填寫內容轉成「標籤：值」的清單來顯示，跟 AI 讀到的是同一份
+const details = computed(() =>
+  request.value ? describeValues(MAINTENANCE_FORM, request.value.fields) : [],
+)
+
+// 修改內容：只有申請人本人，在草稿或待補件時可以改（跟後端 updateRequest 的規則一致）
+const canEdit = computed(
+  () =>
+    currentUser.value.role === 'applicant' &&
+    request.value?.applicantId === currentUser.value.id &&
+    (request.value.status === 'draft' || request.value.status === 'needs_info'),
+)
+const editing = ref(false)
+const fieldErrors = ref<Record<string, string>>({})
+
+async function save(title: string, fields: FormValues) {
+  busy.value = true
+  error.value = null
+  fieldErrors.value = {}
+  try {
+    await api.updateRequest(props.id, { title, fields })
+    await load()
+    editing.value = false
+  } catch (e) {
+    if (e instanceof ApiError) {
+      fieldErrors.value = e.fieldErrors
+      error.value = ERROR_LABEL[e.reason] ?? e.message
+    } else {
+      error.value = String(e)
+    }
+  } finally {
+    busy.value = false
+  }
+}
 
 onMounted(async () => {
   const [, p] = await Promise.all([load(), api.listPolicies()])
@@ -107,17 +161,37 @@ function formatTime(iso: string) {
         <p class="mt-1 text-sm text-muted">
           申請人 {{ request.applicantId }} · 第 {{ request.version }} 版
         </p>
-        <p class="my-4 leading-relaxed whitespace-pre-wrap">
-          {{ request.description || '（未填寫說明）' }}
-        </p>
+        <!-- 修改模式：同一個表單元件，帶入目前的內容 -->
+        <div v-if="editing" class="mt-4">
+          <RequestForm
+            :initial-title="request.title"
+            :initial-fields="request.fields"
+            submit-label="儲存"
+            :busy="busy"
+            :server-errors="fieldErrors"
+            @submit="save"
+            @cancel="editing = false"
+          />
+        </div>
 
-        <ActionButtons
-          v-if="canAct"
-          :status="request.status"
-          :role="currentUser.role"
-          :busy="busy"
-          @send="send"
-        />
+        <!-- 檢視模式：欄位用「標籤：值」的表格呈現 -->
+        <dl v-else class="my-4 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <template v-for="d in details" :key="d.label">
+            <dt class="text-muted">{{ d.label }}</dt>
+            <dd class="whitespace-pre-wrap">{{ d.value }}</dd>
+          </template>
+        </dl>
+
+        <div v-if="!editing" class="flex flex-wrap items-center gap-2">
+          <ActionButtons
+            v-if="canAct"
+            :status="request.status"
+            :role="currentUser.role"
+            :busy="busy"
+            @send="send"
+          />
+          <button v-if="canEdit" class="btn" :disabled="busy" @click="editing = true">修改內容</button>
+        </div>
         <p v-if="error" class="mt-3 text-sm text-danger">{{ error }}</p>
       </section>
 
@@ -126,7 +200,10 @@ function formatTime(iso: string) {
         :reviewing="reviewing"
         :live-findings="liveFindings"
         :active-citation="activeCitation"
+        :can-give-feedback="currentUser.role === 'approver'"
+        :feedback-busy="feedbackBusy"
         @cite="activeCitation = $event"
+        @feedback="giveFeedback"
       />
 
       <section class="card">

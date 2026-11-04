@@ -1,10 +1,10 @@
-import type { ActorRole, RequestEvent, RequestStatus } from '@ai-approval/shared'
-import type { ReviewFinding } from './reviewer'
+import type { ActorRole, AuditAction, Finding, FormValues, RequestStatus } from '@ai-approval/shared'
 
 export interface ApprovalRequest {
   id: string
+  formType: string // 用哪一份表單定義（目前只有 maintenance）
   title: string
-  description: string
+  fields: FormValues // 表單填寫內容，結構由表單定義決定
   applicantId: string
   status: RequestStatus
   version: number // 每次補件重送 +1，用來判斷 AI 預審結果是否過期
@@ -18,7 +18,7 @@ export interface AuditEvent {
   id: string
   requestId: string
   actor: { id: string; role: ActorRole }
-  event: RequestEvent | 'CREATE'
+  event: AuditAction
   from: RequestStatus | null
   to: RequestStatus
   at: string
@@ -32,9 +32,21 @@ export interface AiReview {
   status: 'done' | 'failed'
   riskLevel?: 'low' | 'medium' | 'high'
   summary?: string
-  findings?: ReviewFinding[]
+  findings?: Finding[] // 規則引擎與 AI 的意見，依序排列
   error?: string
   reviewer: string // 用哪個模型（或 mock）審的
+  createdAt: string
+}
+
+// 主管對 AI 某一條意見的評價
+// 不直接改 AiReview，而是另外記一筆：AI 說了什麼、人怎麼判斷，兩者永遠分得清楚
+export interface FindingFeedback {
+  id: string
+  reviewId: string
+  findingIndex: number // 第幾條意見（從 0 開始）
+  verdict: 'correct' | 'incorrect'
+  note: string // 標記有誤時必填：錯在哪裡
+  actorId: string
   createdAt: string
 }
 
@@ -48,6 +60,8 @@ export interface Store {
   listAudit(requestId: string): AuditEvent[]
   appendReview(r: AiReview): void
   listReviews(requestId: string): AiReview[]
+  appendFeedback(f: FindingFeedback): void
+  listFeedback(reviewId: string): FindingFeedback[]
 }
 
 // 記憶體版：重開伺服器資料就會消失，但速度快、不用檔案，適合跑測試
@@ -55,6 +69,7 @@ export function createStore(): Store {
   const requests = new Map<string, ApprovalRequest>()
   const audit: AuditEvent[] = []
   const reviews: AiReview[] = []
+  const feedback: FindingFeedback[] = []
 
   return {
     getRequest: (id) => requests.get(id),
@@ -70,5 +85,9 @@ export function createStore(): Store {
       reviews.push(r)
     },
     listReviews: (requestId) => reviews.filter((r) => r.requestId === requestId),
+    appendFeedback: (f) => {
+      feedback.push(f)
+    },
+    listFeedback: (reviewId) => feedback.filter((f) => f.reviewId === reviewId),
   }
 }

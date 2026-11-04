@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { extractCompletedFindings } from './partial-json'
 import type { PolicyChunk } from './policies'
-import type { ReviewFinding, ReviewHooks, ReviewInput, ReviewOutput, Reviewer } from './reviewer'
+import type { AiFinding, ReviewHooks, ReviewInput, ReviewOutput, Reviewer } from './reviewer'
 
 // 要求模型輸出的 JSON 結構（Structured Outputs）
 // 注意 findings 放在最前面：模型會照這個順序輸出，
@@ -37,13 +37,20 @@ const REVIEW_SCHEMA = {
 // 重點是第 3、4 點：只能引用給定的條文，找不到依據就不要硬講
 const SYSTEM_PROMPT = `你是企業內部的簽核預審助理，負責依據公司規範檢查申請單。
 
+明確的規範（例如電壓門檻、金額門檻、必附文件）已經由系統的規則引擎檢查過，結果會一併提供。
+你的工作是規則引擎做不到的判斷，例如：
+- 故障說明是否具體到足以讓維修人員事先準備
+- 填寫內容是否前後矛盾（例如說明裡提到的狀況與欄位不符）
+- 其他依規範需要人工判讀的疑慮
+
 規則：
 1. 只依據提供的規範條文判斷，不使用一般常識或外部知識補充規定。
-2. 每一項 finding 都要附上依據的條文 id。
-3. citations 只能填寫提供清單中出現的 id，絕對不能自行編造。
-4. 如果某項疑慮在規範中找不到依據，不要列出。
-5. 你只提供預審意見，最終決定由主管做出。
-6. 使用繁體中文。`
+2. 不要重複規則引擎已經列出的問題。
+3. 每一項 finding 都要附上依據的條文 id，citations 只能填寫提供清單中出現的 id，絕對不能自行編造。
+4. 如果某項疑慮在規範中找不到依據，不要列出；沒有問題時 findings 可以是空陣列。
+5. riskLevel 只評估你自己找到的問題。
+6. 你只提供預審意見，最終決定由主管做出。
+7. 使用繁體中文。`
 
 function formatPolicies(policies: readonly PolicyChunk[]) {
   return policies.map((p) => `[${p.id}] 《${p.docTitle}》第 ${p.section} 條：${p.text}`).join('\n')
@@ -68,7 +75,15 @@ export function createClaudeReviewer(options: { apiKey: string; model: string })
           messages: [
             {
               role: 'user',
-              content: `## 規範條文\n${formatPolicies(policies)}\n\n## 申請單\n標題：${input.title}\n內容：${input.description || '（未填寫）'}`,
+              content: [
+                `## 規範條文\n${formatPolicies(policies)}`,
+                `## 申請單\n標題：${input.title}\n${input.details.map((d) => `${d.label}：${d.value}`).join('\n')}`,
+                `## 規則引擎已檢查出的問題\n${
+                  input.ruleFindings.length === 0
+                    ? '（無）'
+                    : input.ruleFindings.map((f) => `- [${f.citations.join(', ')}] ${f.message}`).join('\n')
+                }`,
+              ].join('\n\n'),
             },
           ],
           output_config: { format: { type: 'json_schema', schema: REVIEW_SCHEMA } },
@@ -79,7 +94,7 @@ export function createClaudeReviewer(options: { apiKey: string; model: string })
       // 每收到一段文字，就檢查「到目前為止」完整的 finding 有幾個，新的就往外送
       let emitted = 0
       stream.on('text', (_delta, snapshot) => {
-        const found = extractCompletedFindings(snapshot) as ReviewFinding[]
+        const found = extractCompletedFindings(snapshot) as AiFinding[]
         for (; emitted < found.length; emitted++) {
           hooks?.onFinding?.(found[emitted]!)
         }

@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { createRequestService, type CurrentUser, type ReviewStreamEvent } from './request-service'
+import { mustCreate, COMPLETE_LOW_VOLTAGE, INCOMPLETE_HIGH_VOLTAGE, alice } from './fixtures'
+import { createRequestService, type ReviewStreamEvent } from './request-service'
 import { mockReviewer, type Reviewer } from './reviewer'
 import { createStore } from './store'
-
-const alice: CurrentUser = { id: 'alice', role: 'applicant' }
 
 describe('預審串流', () => {
   it('依序推播：預審中 → 一條一條意見 → 待簽核', async () => {
     const service = createRequestService(createStore(), mockReviewer)
-    const r = service.createRequest(alice, { title: '高壓設備維修', description: '馬達異音' })
+    const r = mustCreate(service, alice, INCOMPLETE_HIGH_VOLTAGE)
 
     const events: ReviewStreamEvent[] = []
     const unsubscribe = service.subscribe(r.id, (e) => events.push(e))
@@ -40,14 +39,19 @@ describe('預審串流', () => {
       },
     }
     const service = createRequestService(createStore(), paused)
-    const r = service.createRequest(alice, { title: '維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     service.sendEvent(r.id, 'SUBMIT', alice)
 
     // 這時候才打開頁面
     const events: ReviewStreamEvent[] = []
     service.subscribe(r.id, (e) => events.push(e))
     expect(events).toEqual([
-      { type: 'finding', version: 1, finding: { kind: 'risk', message: '第一條', citations: ['sop-4.3'] } },
+      {
+        type: 'finding',
+        version: 1,
+        // service 會幫 AI 的意見標上 source: 'ai'
+        finding: { kind: 'risk', message: '第一條', citations: ['sop-4.3'], source: 'ai' },
+      },
       { type: 'status', status: 'reviewing' },
     ])
 
@@ -65,7 +69,7 @@ describe('預審串流', () => {
       },
     }
     const service = createRequestService(createStore(), hallucinating)
-    const r = service.createRequest(alice, { title: '維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
 
     const findings: string[][] = []
     service.subscribe(r.id, (e) => {

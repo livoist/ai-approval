@@ -1,5 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
-import type { RequestEvent } from '@ai-approval/shared'
+import { MAINTENANCE_FORM, type FormValues, type RequestEvent } from '@ai-approval/shared'
 import { POLICY_CHUNKS } from './policies'
 import type { CurrentUser, RequestService } from './request-service'
 
@@ -18,6 +18,33 @@ const STATUS_CODE = {
   forbidden: 403, // 有這個動作，但你沒權限
   invalid_transition: 409, // 這張單目前的狀態不能做這件事（Conflict）
 } as const
+
+const FEEDBACK_STATUS_CODE = {
+  not_found: 404,
+  forbidden: 403,
+  note_required: 400, // 輸入不完整
+} as const
+
+// 從 request body 取出表單資料；型別不對就當成空的，交給 service 的驗證去擋
+function readFormInput(body: unknown): { title: string; fields: FormValues } {
+  const b = (body ?? {}) as { title?: unknown; fields?: unknown }
+  return {
+    title: typeof b.title === 'string' ? b.title : '',
+    fields: b.fields && typeof b.fields === 'object' ? (b.fields as FormValues) : {},
+  }
+}
+
+// 建立、修改失敗時的統一回應：欄位錯誤要把每個欄位的訊息一起回傳，前端才能顯示在對應的欄位下
+function sendFormError(
+  res: Response,
+  result: { reason: 'invalid_fields'; fieldErrors: Record<string, string> } | { reason: keyof typeof STATUS_CODE },
+) {
+  if (result.reason === 'invalid_fields') {
+    res.status(400).json({ error: 'invalid_fields', fieldErrors: result.fieldErrors })
+    return
+  }
+  res.status(STATUS_CODE[result.reason]).json({ error: result.reason })
+}
 
 // 前端只能「申請」或「簽核」，絕對不能宣稱自己是 system
 const CLIENT_ROLES = ['applicant', 'approver'] as const
@@ -46,21 +73,29 @@ export function createApp(service: RequestService) {
   })
 
   // 建立新申請單（草稿）：只有申請人可以
+  // 欄位怎麼驗證由 shared 的表單定義決定，這裡只負責把結果轉成 HTTP 回應
   app.post('/requests', (req, res) => {
-    if (req.user!.role !== 'applicant') {
-      res.status(403).json({ error: 'forbidden' })
+    const result = service.createRequest(req.user!, readFormInput(req.body))
+    if (!result.ok) {
+      sendFormError(res, result)
       return
     }
-    const { title, description } = req.body ?? {}
-    if (typeof title !== 'string' || title.trim() === '') {
-      res.status(400).json({ error: 'title_required' })
+    res.status(201).json(result.request)
+  })
+
+  // 修改申請內容（草稿或待補件時）
+  app.put('/requests/:id', (req, res) => {
+    const result = service.updateRequest(req.params.id, req.user!, readFormInput(req.body))
+    if (!result.ok) {
+      sendFormError(res, result)
       return
     }
-    const request = service.createRequest(req.user!, {
-      title: title.trim(),
-      description: typeof description === 'string' ? description : '',
-    })
-    res.status(201).json(request)
+    res.json(result.request)
+  })
+
+  // 表單定義：前端照著它畫出表單
+  app.get('/forms/maintenance', (_req, res) => {
+    res.json(MAINTENANCE_FORM)
   })
 
   // 規範條文：前端點引用時，用 id 查出原文來高亮
@@ -108,6 +143,25 @@ export function createApp(service: RequestService) {
       clearInterval(heartbeat)
       unsubscribe()
     })
+  })
+
+  // 主管評價 AI 的某一條意見
+  app.post('/requests/:id/reviews/:reviewId/findings/:index/feedback', (req, res) => {
+    const index = Number(req.params.index)
+    const { verdict, note } = req.body ?? {}
+    if (!Number.isInteger(index) || (verdict !== 'correct' && verdict !== 'incorrect')) {
+      res.status(400).json({ error: 'invalid_input' })
+      return
+    }
+    const result = service.giveFeedback(req.params.id, req.params.reviewId, index, req.user!, {
+      verdict,
+      note: typeof note === 'string' ? note : '',
+    })
+    if (!result.ok) {
+      res.status(FEEDBACK_STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.status(201).json(result.feedback)
   })
 
   // 對申請單送出事件：送出、核准、退回、撤回……全部走這一支 API

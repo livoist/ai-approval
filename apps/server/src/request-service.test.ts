@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createRequestService, type CurrentUser, type RequestService } from './request-service'
+import { mustCreate, COMPLETE_LOW_VOLTAGE, alice, bob, manager, system } from './fixtures'
+import { createRequestService, type RequestService } from './request-service'
 import { createStore } from './store'
-
-const alice: CurrentUser = { id: 'alice', role: 'applicant' }
-const bob: CurrentUser = { id: 'bob', role: 'applicant' }
-const manager: CurrentUser = { id: 'manager', role: 'approver' }
-const system: CurrentUser = { id: 'system', role: 'system' }
 
 let service: RequestService
 
@@ -16,14 +12,14 @@ beforeEach(() => {
 
 describe('request service', () => {
   it('建立的申請單是草稿，並留下一筆紀錄', () => {
-    const r = service.createRequest(alice, { title: '設備維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     expect(r.status).toBe('draft')
     expect(r.applicantId).toBe('alice')
     expect(service.getHistory(r.id)).toHaveLength(1)
   })
 
   it('完整流程會依序留下每一筆紀錄', () => {
-    const r = service.createRequest(alice, { title: '設備維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     service.sendEvent(r.id, 'SUBMIT', alice)
     service.sendEvent(r.id, 'AI_REVIEW_DONE', system)
     const result = service.sendEvent(r.id, 'APPROVE', manager)
@@ -38,12 +34,12 @@ describe('request service', () => {
   })
 
   it('申請人不能動別人的單', () => {
-    const r = service.createRequest(alice, { title: '設備維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     expect(service.sendEvent(r.id, 'SUBMIT', bob)).toEqual({ ok: false, reason: 'forbidden' })
   })
 
   it('非法操作不會改變狀態，也不會留下紀錄', () => {
-    const r = service.createRequest(alice, { title: '設備維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     expect(service.sendEvent(r.id, 'APPROVE', manager)).toEqual({
       ok: false,
       reason: 'invalid_transition',
@@ -53,7 +49,7 @@ describe('request service', () => {
   })
 
   it('補件重送後版本號 +1', () => {
-    const r = service.createRequest(alice, { title: '設備維修', description: '' })
+    const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     service.sendEvent(r.id, 'SUBMIT', alice)
     service.sendEvent(r.id, 'AI_REVIEW_DONE', system)
     service.sendEvent(r.id, 'REQUEST_INFO', manager)

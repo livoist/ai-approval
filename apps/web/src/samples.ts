@@ -1,41 +1,88 @@
+import type { FormValues } from '@ai-approval/shared'
+
 // 測試與 demo 用的範例申請單
-// 每一筆都刻意設計成會觸發不同的預審結果，方便一次看完所有情境
+// 每一筆都刻意設計成會觸發不同的預審結果，方便一次看完所有情境：
+// 規則引擎負責的（斷電紀錄、LOTO、廠長核准），以及 AI 負責的（說明是否具體）
 export interface SampleRequest {
   label: string // 按鈕上的文字
   expect: string // 預期的預審結果，提示用
   title: string
-  description: string
+  fields: FormValues
 }
+
+const DETAILED = '主馬達運轉時有明顯金屬摩擦異音，振動值由 2.1 升至 6.8 mm/s，自 11/3 上午開始，目前降速運轉中。'
 
 export const SAMPLE_REQUESTS: SampleRequest[] = [
   {
     label: '高壓・資料不全',
-    expect: '高風險，3 項',
+    expect: '高風險，3 項（規則 2、AI 1）',
     title: '3 號產線高壓馬達維修',
-    description: '3 號產線主馬達運轉時有明顯異音，振動偏大，需安排維修。',
+    fields: {
+      equipmentId: 'HV-0301',
+      area: 'A 廠區',
+      voltage: 480,
+      estimatedCost: 120000,
+      faultDescription: '馬達運轉異音',
+      isDown: false,
+    },
   },
   {
     label: '高壓・未上鎖掛牌',
-    expect: '中風險，1 項',
+    expect: '中風險，1 項（規則）',
     title: '2 號變電箱高壓斷路器更換',
-    description:
-      '設備編號 HV-0207，位於 A 廠區二樓配電室。\n' +
-      '斷路器跳脫後無法復歸，自 11/3 08:30 起停機。\n' +
-      '已由電氣課陳工程師於 11/3 09:10 完成斷電，斷電確認紀錄如附件。',
+    fields: {
+      equipmentId: 'HV-0207',
+      area: 'A 廠區',
+      voltage: 4160,
+      estimatedCost: 260000,
+      faultDescription: '斷路器跳脫後無法復歸，現場聞到焦味，外殼局部變色，研判內部接點燒損。',
+      isDown: true,
+      downSince: '2026-11-03T08:30',
+      lockoutBy: '電氣課 陳工程師',
+      lockoutAt: '2026-11-03T09:10',
+      lotoDone: false,
+    },
   },
   {
     label: '高壓・資料齊全',
     expect: '低風險，0 項',
-    title: '1 號空壓機 480V 主電源檢修',
-    description:
-      '設備編號 AC-0101，位於 B 廠區機房。\n' +
-      '電源端子有焦痕，11/4 14:00 發現，尚未停機。\n' +
-      '已由電氣課林組長於 11/4 14:30 完成斷電，並於作業區實施上鎖掛牌（LOTO）。',
+    title: '1 號空壓機主電源檢修',
+    fields: {
+      equipmentId: 'AC-0101',
+      area: 'B 廠區',
+      voltage: 480,
+      estimatedCost: 85000,
+      faultDescription: DETAILED,
+      isDown: false,
+      lockoutBy: '電氣課 林組長',
+      lockoutAt: '2026-11-04T14:30',
+      lotoDone: true,
+    },
   },
   {
-    label: '一般設備・缺編號',
-    expect: '中風險，1 項',
+    label: '超過 50 萬',
+    expect: '低風險，1 項（規則提醒需廠長核准）',
+    title: '冷卻水塔風扇馬達汰換',
+    fields: {
+      equipmentId: 'CT-0012',
+      area: 'C 廠區',
+      voltage: 380,
+      estimatedCost: 820000,
+      faultDescription: '風扇馬達軸承磨損嚴重，已更換兩次仍持續過熱，評估需整組汰換並更新控制盤。',
+      isDown: false,
+    },
+  },
+  {
+    label: '低壓・說明簡略',
+    expect: '中風險，1 項（AI）',
     title: '辦公室空調異常',
-    description: 'C 棟三樓辦公室空調出風不冷，自上週起溫度偏高。',
+    fields: {
+      equipmentId: 'GN-1033',
+      area: 'C 廠區',
+      voltage: 220,
+      estimatedCost: 15000,
+      faultDescription: '空調不太冷，麻煩處理',
+      isDown: false,
+    },
   },
 ]

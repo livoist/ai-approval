@@ -1,28 +1,28 @@
+import type { Finding, FormValues } from '@ai-approval/shared'
 import type { PolicyChunk } from './policies'
 
-// AI 預審的輸出格式：不論背後是 Claude 還是假的審查員，都要回傳這個形狀
-export interface ReviewFinding {
-  kind: 'missing' | 'risk' | 'ok'
-  message: string
-  citations: string[] // PolicyChunk 的 id
-}
+// AI 產生的意見：跟 Finding 一樣，只是還沒標上來源（由 service 補上 source: 'ai'）
+// AI 不會產生 notice（流程提醒），那是規則引擎的工作
+export type AiFinding = Omit<Finding, 'source'> & { kind: 'missing' | 'risk' | 'ok' }
 
 export interface ReviewOutput {
   riskLevel: 'low' | 'medium' | 'high'
   summary: string
-  findings: ReviewFinding[]
+  findings: AiFinding[]
 }
 
 export interface ReviewInput {
   title: string
-  description: string
+  values: FormValues // 原始填寫內容（給程式判斷用）
+  details: { label: string; value: string }[] // 轉成人看得懂的「標籤：值」（給 AI 讀）
+  ruleFindings: Finding[] // 規則引擎已經查到的問題，AI 不用再重複
 }
 
 // 審查過程中的「掛勾」：
 // - onFinding：每審出一條意見就呼叫一次，讓畫面可以即時顯示（串流的關鍵）
 // - signal：外面可以喊停，例如逾時了就中止請求，不要白白等下去
 export interface ReviewHooks {
-  onFinding?: (finding: ReviewFinding) => void
+  onFinding?: (finding: AiFinding) => void
   signal?: AbortSignal
 }
 
@@ -35,7 +35,10 @@ export interface Reviewer {
 
 // 引用驗證：AI 回傳的條文 id 一定要真的存在
 // 模型偶爾會「幻覺」出不存在的條文，這一關確保畫面上的每個引用都點得開
-export function validateFinding(finding: ReviewFinding, policies: readonly PolicyChunk[]) {
+export function validateFinding<T extends { citations: string[] }>(
+  finding: T,
+  policies: readonly PolicyChunk[],
+): T {
   const known = new Set(policies.map((p) => p.id))
   return { ...finding, citations: finding.citations.filter((id) => known.has(id)) }
 }
@@ -54,42 +57,32 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     })
   })
 
-// 假的審查員：用簡單的關鍵字規則，結果固定、免費、不用網路
+// 假的審查員：模擬 AI 負責的「模糊判斷」，結果固定、免費、不用網路
+// 硬性規則已經由規則引擎處理，這裡只示範 AI 會做的那種判斷：故障說明夠不夠具體
 // delayMs 模擬 AI 思考的時間，讓沒有 API key 也看得到「一條一條長出來」的串流效果
 export function createMockReviewer(options: { delayMs: number }): Reviewer {
   return {
     name: 'mock',
     async review(input, _policies, hooks) {
-      const text = `${input.title}\n${input.description}`
-      const isHighVoltage = /高壓|480V/i.test(text)
-      const findings: ReviewFinding[] = []
+      const findings: AiFinding[] = []
+      const description = typeof input.values.faultDescription === 'string' ? input.values.faultDescription : ''
 
-      const emit = async (f: ReviewFinding) => {
-        await sleep(options.delayMs, hooks?.signal)
-        findings.push(f)
-        hooks?.onFinding?.(f)
-      }
-
-      if (!/編號/.test(text)) {
-        await emit({ kind: 'missing', message: '未載明設備編號。', citations: ['sop-3.1'] })
-      }
-      if (isHighVoltage && !/斷電/.test(text)) {
-        await emit({
-          kind: 'missing',
-          message: '高壓設備維修未附斷電確認紀錄，依規範不得核准。',
-          citations: ['sop-4.2'],
-        })
-      }
-      if (isHighVoltage && !/上鎖|LOTO/i.test(text)) {
-        await emit({ kind: 'risk', message: '未提及上鎖掛牌程序。', citations: ['sop-4.3'] })
+      await sleep(options.delayMs, hooks?.signal)
+      if (description.trim().length < 20) {
+        const finding: AiFinding = {
+          kind: 'risk',
+          message: '故障說明過於簡略，維修人員可能難以事先判斷故障原因與所需零件。',
+          citations: ['sop-3.2'],
+        }
+        findings.push(finding)
+        hooks?.onFinding?.(finding)
       }
       await sleep(options.delayMs, hooks?.signal)
 
-      const missing = findings.filter((f) => f.kind === 'missing').length
-      const riskLevel = isHighVoltage && missing > 0 ? 'high' : findings.length > 0 ? 'medium' : 'low'
+      const total = input.ruleFindings.length + findings.length
       return {
-        riskLevel,
-        summary: findings.length === 0 ? '申請內容符合規範。' : `發現 ${findings.length} 項需注意事項。`,
+        riskLevel: findings.length > 0 ? 'medium' : 'low',
+        summary: total === 0 ? '申請內容符合規範。' : `共 ${total} 項需注意事項，請主管確認。`,
         findings,
       }
     },

@@ -11,8 +11,9 @@ const implementations: [string, () => Store][] = [
 
 const request: ApprovalRequest = {
   id: 'r1',
+  formType: 'maintenance',
   title: '高壓設備維修',
-  description: '馬達異音',
+  fields: { equipmentId: 'HV-0301', voltage: 480, isDown: false, downSince: null },
   applicantId: 'alice',
   status: 'draft',
   version: 1,
@@ -66,7 +67,7 @@ for (const [name, create] of implementations) {
         status: 'done',
         riskLevel: 'high',
         summary: '發現 1 項',
-        findings: [{ kind: 'missing', message: '未附斷電紀錄', citations: ['sop-4.2'] }],
+        findings: [{ kind: 'missing', message: '未附斷電紀錄', citations: ['sop-4.2'], source: 'rule' }],
         reviewer: 'mock',
         createdAt: '2026-11-04T00:00:02.000Z',
       }
@@ -82,6 +83,36 @@ for (const [name, create] of implementations) {
       store.appendReview(done)
       store.appendReview(failed)
       expect(store.listReviews('r1')).toEqual([done, failed])
+    })
+
+    it('評價依寫入順序讀出，只回傳該次預審的', () => {
+      const store = create()
+      store.saveRequest(request)
+      const review = (id: string): AiReview => ({
+        id,
+        requestId: 'r1',
+        requestVersion: 1,
+        status: 'done',
+        reviewer: 'mock',
+        createdAt: '2026-11-04T00:00:02.000Z',
+      })
+      store.appendReview(review('v1'))
+      store.appendReview(review('v2'))
+
+      const fb = (id: string, reviewId: string, verdict: 'correct' | 'incorrect') => ({
+        id,
+        reviewId,
+        findingIndex: 0,
+        verdict,
+        note: verdict === 'incorrect' ? '規範沒有這條要求' : '',
+        actorId: 'manager',
+        createdAt: '2026-11-04T00:00:04.000Z',
+      })
+      store.appendFeedback(fb('f1', 'v1', 'incorrect'))
+      store.appendFeedback(fb('f2', 'v2', 'correct'))
+      store.appendFeedback(fb('f3', 'v1', 'correct'))
+
+      expect(store.listFeedback('v1')).toEqual([fb('f1', 'v1', 'incorrect'), fb('f3', 'v1', 'correct')])
     })
   })
 }

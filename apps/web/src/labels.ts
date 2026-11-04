@@ -1,4 +1,4 @@
-import type { RequestEvent, RequestStatus } from '@ai-approval/shared'
+import type { AuditAction, RequestStatus } from '@ai-approval/shared'
 
 // Record<聯集型別, string>：如果 shared 新增了狀態或事件卻忘了補中文，TypeScript 會直接報錯
 export const STATUS_LABEL: Record<RequestStatus, string> = {
@@ -11,8 +11,9 @@ export const STATUS_LABEL: Record<RequestStatus, string> = {
   withdrawn: '已撤回',
 }
 
-export const EVENT_LABEL: Record<RequestEvent | 'CREATE', string> = {
+export const EVENT_LABEL: Record<AuditAction, string> = {
   CREATE: '建立',
+  UPDATE: '修改內容',
   SUBMIT: '送出',
   AI_REVIEW_DONE: 'AI 預審完成',
   AI_REVIEW_FAILED: 'AI 預審失敗',
@@ -27,4 +28,6 @@ export const ERROR_LABEL: Record<string, string> = {
   forbidden: '你沒有權限執行這個動作',
   invalid_transition: '這張申請單目前的狀態不能執行這個動作',
   not_found: '找不到這張申請單',
+  note_required: '標記為有誤時，請說明錯在哪裡',
+  invalid_fields: '有欄位填寫不正確，請檢查標示紅字的地方',
 }
