@@ -1,4 +1,5 @@
 import type { ActorRole, RequestEvent, RequestStatus } from '@ai-approval/shared'
+import type { ReviewFinding } from './reviewer'
 
 export interface ApprovalRequest {
   id: string
@@ -6,7 +7,7 @@ export interface ApprovalRequest {
   description: string
   applicantId: string
   status: RequestStatus
-  version: number // 每次補件重送 +1，之後用來判斷 AI 預審結果是否過期
+  version: number // 每次補件重送 +1，用來判斷 AI 預審結果是否過期
   createdAt: string
   updatedAt: string
 }
@@ -23,11 +24,26 @@ export interface AuditEvent {
   at: string
 }
 
+// AI 預審結果：記下它審的是「哪個版本」的申請單
+export interface AiReview {
+  id: string
+  requestId: string
+  requestVersion: number
+  status: 'done' | 'failed'
+  riskLevel?: 'low' | 'medium' | 'high'
+  summary?: string
+  findings?: ReviewFinding[]
+  error?: string
+  reviewer: string // 用哪個模型（或 mock）審的
+  createdAt: string
+}
+
 // 暫時用記憶體當資料庫：重開伺服器資料就會消失
 // 先把流程做對，之後換成 SQLite 時只需要改這個檔案
 export function createStore() {
   const requests = new Map<string, ApprovalRequest>()
   const audit: AuditEvent[] = []
+  const reviews: AiReview[] = []
 
   return {
     getRequest: (id: string) => requests.get(id),
@@ -39,6 +55,10 @@ export function createStore() {
       audit.push(e)
     },
     listAudit: (requestId: string) => audit.filter((e) => e.requestId === requestId),
+    appendReview: (r: AiReview) => {
+      reviews.push(r)
+    },
+    listReviews: (requestId: string) => reviews.filter((r) => r.requestId === requestId),
   }
 }
 

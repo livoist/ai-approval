@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import type { RequestEvent } from '@ai-approval/shared'
+import { POLICY_CHUNKS } from './policies'
 import type { CurrentUser, RequestService } from './request-service'
 
 // 擴充 Express 的 Request 型別，讓 req.user 有型別提示
@@ -62,14 +63,23 @@ export function createApp(service: RequestService) {
     res.status(201).json(request)
   })
 
-  // 單一申請單 + 它的完整歷史
+  // 規範條文：前端點引用時，用 id 查出原文來高亮
+  app.get('/policies', (_req, res) => {
+    res.json(POLICY_CHUNKS)
+  })
+
+  // 單一申請單 + 完整歷史 + 對應目前版本的 AI 預審結果
   app.get('/requests/:id', (req, res) => {
     const request = service.getRequest(req.params.id)
     if (!request) {
       res.status(404).json({ error: 'not_found' })
       return
     }
-    res.json({ ...request, history: service.getHistory(request.id) })
+    res.json({
+      ...request,
+      history: service.getHistory(request.id),
+      review: service.getLatestReview(request.id) ?? null,
+    })
   })
 
   // 對申請單送出事件：送出、核准、退回、撤回……全部走這一支 API
