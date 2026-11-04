@@ -38,28 +38,37 @@ export interface AiReview {
   createdAt: string
 }
 
-// 暫時用記憶體當資料庫：重開伺服器資料就會消失
-// 先把流程做對，之後換成 SQLite 時只需要改這個檔案
-export function createStore() {
+// 資料層的「合約」：service 只依賴這個介面
+// 記憶體版、SQLite 版都要實作同一組方法，service 完全不知道資料存在哪裡
+export interface Store {
+  getRequest(id: string): ApprovalRequest | undefined
+  listRequests(): ApprovalRequest[]
+  saveRequest(r: ApprovalRequest): void
+  appendAudit(e: AuditEvent): void
+  listAudit(requestId: string): AuditEvent[]
+  appendReview(r: AiReview): void
+  listReviews(requestId: string): AiReview[]
+}
+
+// 記憶體版：重開伺服器資料就會消失，但速度快、不用檔案，適合跑測試
+export function createStore(): Store {
   const requests = new Map<string, ApprovalRequest>()
   const audit: AuditEvent[] = []
   const reviews: AiReview[] = []
 
   return {
-    getRequest: (id: string) => requests.get(id),
+    getRequest: (id) => requests.get(id),
     listRequests: () => [...requests.values()],
-    saveRequest: (r: ApprovalRequest) => {
+    saveRequest: (r) => {
       requests.set(r.id, r)
     },
-    appendAudit: (e: AuditEvent) => {
+    appendAudit: (e) => {
       audit.push(e)
     },
-    listAudit: (requestId: string) => audit.filter((e) => e.requestId === requestId),
-    appendReview: (r: AiReview) => {
+    listAudit: (requestId) => audit.filter((e) => e.requestId === requestId),
+    appendReview: (r) => {
       reviews.push(r)
     },
-    listReviews: (requestId: string) => reviews.filter((r) => r.requestId === requestId),
+    listReviews: (requestId) => reviews.filter((r) => r.requestId === requestId),
   }
 }
-
-export type Store = ReturnType<typeof createStore>

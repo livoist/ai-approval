@@ -1,6 +1,6 @@
-import type { RequestEvent } from '@ai-approval/shared'
+import { createSseParser, type RequestEvent } from '@ai-approval/shared'
 import { currentUser } from './session'
-import type { ApprovalRequest, PolicyChunk, RequestDetail } from './types'
+import type { ApprovalRequest, PolicyChunk, RequestDetail, ReviewStreamEvent } from './types'
 
 // 後端回傳的錯誤，保留狀態碼與原因，讓畫面可以顯示對應的訊息
 export class ApiError extends Error {
@@ -12,16 +12,15 @@ export class ApiError extends Error {
   }
 }
 
+function authHeaders() {
+  // 假登入：把目前切換到的使用者放進 header，跟 curl 時手動加的一樣
+  return { 'x-user-id': currentUser.value.id, 'x-user-role': currentUser.value.role }
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      // 假登入：把目前切換到的使用者放進 header，跟 curl 時手動加的一樣
-      'x-user-id': currentUser.value.id,
-      'x-user-role': currentUser.value.role,
-      ...init?.headers,
-    },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
   })
   const body = await res.json().catch(() => null)
   if (!res.ok) throw new ApiError(res.status, body?.error ?? 'unknown')
@@ -39,4 +38,29 @@ export const api = {
       body: JSON.stringify({ event }),
     }),
   listPolicies: () => call<PolicyChunk[]>('/policies'),
+  streamReview,
+}
+
+// 訂閱申請單的即時事件（SSE）
+//
+// 為什麼不用瀏覽器內建的 EventSource？因為它「不能自訂 header」，
+// 而我們的身分驗證放在 header 裡（正式系統的 Authorization: Bearer xxx 也一樣）。
+// 所以改用 fetch 讀取串流，自己解析 SSE 格式，好處是還能用 AbortController 隨時中斷。
+async function streamReview(
+  id: string,
+  onEvent: (event: ReviewStreamEvent) => void,
+  signal: AbortSignal,
+) {
+  const res = await fetch(`/api/requests/${id}/stream`, { headers: authHeaders(), signal })
+  if (!res.ok || !res.body) throw new ApiError(res.status, 'stream_failed')
+
+  const feed = createSseParser((data) => onEvent(JSON.parse(data)))
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+
+  // 一直讀到連線結束，或是外面呼叫 abort()
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    feed(value)
+  }
 }

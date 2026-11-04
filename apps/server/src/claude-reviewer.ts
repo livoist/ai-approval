@@ -1,15 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema'
+import { extractCompletedFindings } from './partial-json'
 import type { PolicyChunk } from './policies'
-import type { ReviewInput, ReviewOutput, Reviewer } from './reviewer'
+import type { ReviewFinding, ReviewHooks, ReviewInput, ReviewOutput, Reviewer } from './reviewer'
 
 // 要求模型輸出的 JSON 結構（Structured Outputs）
-// API 會保證回傳符合這個 schema，不用自己 parse 半天還擔心格式壞掉
+// 注意 findings 放在最前面：模型會照這個順序輸出，
+// 先吐出一條一條的意見（可以邊收邊顯示），最後才下結論給風險等級和摘要
 const REVIEW_SCHEMA = {
   type: 'object',
   properties: {
-    riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] },
-    summary: { type: 'string', description: '一到兩句話的預審摘要' },
     findings: {
       type: 'array',
       items: {
@@ -27,10 +26,12 @@ const REVIEW_SCHEMA = {
         additionalProperties: false,
       },
     },
+    riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] },
+    summary: { type: 'string', description: '一到兩句話的預審摘要' },
   },
-  required: ['riskLevel', 'summary', 'findings'],
+  required: ['findings', 'riskLevel', 'summary'],
   additionalProperties: false,
-} as const
+}
 
 // system prompt：定義 AI 的角色與「不能做什麼」
 // 重點是第 3、4 點：只能引用給定的條文，找不到依據就不要硬講
@@ -53,25 +54,46 @@ export function createClaudeReviewer(options: { apiKey: string; model: string })
 
   return {
     name: options.model,
-    async review(input: ReviewInput, policies: readonly PolicyChunk[]): Promise<ReviewOutput> {
-      const response = await client.messages.parse({
-        model: options.model,
-        max_tokens: 2048,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `## 規範條文\n${formatPolicies(policies)}\n\n## 申請單\n標題：${input.title}\n內容：${input.description || '（未填寫）'}`,
-          },
-        ],
-        output_config: { format: jsonSchemaOutputFormat(REVIEW_SCHEMA) },
+    async review(
+      input: ReviewInput,
+      policies: readonly PolicyChunk[],
+      hooks?: ReviewHooks,
+    ): Promise<ReviewOutput> {
+      // 用 stream 取代 create：模型每產生一小段文字，我們就收到一次
+      const stream = client.messages.stream(
+        {
+          model: options.model,
+          max_tokens: 2048,
+          system: SYSTEM_PROMPT,
+          messages: [
+            {
+              role: 'user',
+              content: `## 規範條文\n${formatPolicies(policies)}\n\n## 申請單\n標題：${input.title}\n內容：${input.description || '（未填寫）'}`,
+            },
+          ],
+          output_config: { format: { type: 'json_schema', schema: REVIEW_SCHEMA } },
+        },
+        { signal: hooks?.signal },
+      )
+
+      // 每收到一段文字，就檢查「到目前為止」完整的 finding 有幾個，新的就往外送
+      let emitted = 0
+      stream.on('text', (_delta, snapshot) => {
+        const found = extractCompletedFindings(snapshot) as ReviewFinding[]
+        for (; emitted < found.length; emitted++) {
+          hooks?.onFinding?.(found[emitted]!)
+        }
       })
 
+      const message = await stream.finalMessage()
+
       // 模型拒答或輸出被截斷時，內容可能不完整，一律視為失敗
-      if (response.stop_reason !== 'end_turn' || !response.parsed_output) {
-        throw new Error(`unexpected stop_reason: ${response.stop_reason}`)
+      if (message.stop_reason !== 'end_turn') {
+        throw new Error(`unexpected stop_reason: ${message.stop_reason}`)
       }
-      return response.parsed_output as ReviewOutput
+      const text = message.content.find((b) => b.type === 'text')
+      if (!text || text.type !== 'text') throw new Error('empty response')
+      return JSON.parse(text.text) as ReviewOutput
     },
   }
 }

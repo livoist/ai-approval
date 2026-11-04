@@ -7,14 +7,17 @@
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:reset": "rm -f data/app.db data/app.db-wal data/app.db-shm"
   },
   "dependencies": {
     "@ai-approval/shared": "workspace:*",
     "@anthropic-ai/sdk": "^1.4.0",
+    "better-sqlite3": "^13.0.3",
     "express": "^5.1.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/supertest": "^6.0.0",

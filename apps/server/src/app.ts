@@ -82,6 +82,34 @@ export function createApp(service: RequestService) {
     })
   })
 
+  // SSE：一條不會結束的 HTTP 回應，後端有新消息就往裡面寫一段
+  app.get('/requests/:id/stream', (req, res) => {
+    if (!service.getRequest(req.params.id)) {
+      res.status(404).json({ error: 'not_found' })
+      return
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+    res.flushHeaders()
+
+    const unsubscribe = service.subscribe(req.params.id, (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`)
+    })
+
+    // 心跳：每 15 秒送一行註解，避免連線因為太久沒資料被中間的設備切斷
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000)
+
+    // 使用者關掉頁面、或前端主動中斷 → 一定要清乾淨
+    req.on('close', () => {
+      clearInterval(heartbeat)
+      unsubscribe()
+    })
+  })
+
   // 對申請單送出事件：送出、核准、退回、撤回……全部走這一支 API
   app.post('/requests/:id/events', (req, res) => {
     const event = req.body?.event as RequestEvent | undefined

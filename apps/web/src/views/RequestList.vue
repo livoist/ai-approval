@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { STATUS_LABEL } from '../labels'
+import { SAMPLE_REQUESTS, type SampleRequest } from '../samples'
 import { currentUser } from '../session'
 import type { ApprovalRequest } from '../types'
 
@@ -28,6 +29,11 @@ async function create() {
   }
 }
 
+function fillSample(sample: SampleRequest) {
+  title.value = sample.title
+  description.value = sample.description
+}
+
 onMounted(load)
 </script>
 
@@ -36,6 +42,23 @@ onMounted(load)
   <div class="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
     <section v-if="currentUser.role === 'applicant'" class="card">
       <h2 class="mb-4 text-lg font-semibold">新增維修申請</h2>
+
+      <div class="mb-4 rounded-lg bg-bg p-3">
+        <p class="mb-2 text-xs text-muted">帶入範例資料（測試用）</p>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="s in SAMPLE_REQUESTS"
+            :key="s.label"
+            type="button"
+            class="btn px-2.5 py-1 text-xs"
+            :title="`預期結果：${s.expect}`"
+            @click="fillSample(s)"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+      </div>
+
       <form class="grid gap-3" @submit.prevent="create">
         <label class="grid gap-1 text-sm">
           標題

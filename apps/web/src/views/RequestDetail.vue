@@ -7,7 +7,7 @@ import PolicyPanel from '../components/PolicyPanel.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import { ERROR_LABEL, EVENT_LABEL, STATUS_LABEL } from '../labels'
 import { currentUser } from '../session'
-import type { PolicyChunk, RequestDetail } from '../types'
+import type { PolicyChunk, RequestDetail, ReviewFinding } from '../types'
 
 const props = defineProps<{ id: string }>()
 
@@ -23,19 +23,41 @@ async function load() {
   request.value = await api.getRequest(props.id)
 }
 
-// 輪詢：AI 在背景跑，前端每秒問一次「好了沒」，好了就停
-// 這是最簡單的做法；之後會改成 SSE，讓後端主動推播，連預審過程都能即時串流出來
-let timer: ReturnType<typeof setInterval> | undefined
-function startPolling() {
-  stopPolling()
-  timer = setInterval(async () => {
-    await load()
-    if (!reviewing.value) stopPolling()
-  }, 1000)
+// 串流：預審期間跟後端保持一條連線，AI 每審出一條意見，後端就主動推過來
+// 跟輪詢比起來，不用一直問「好了沒」，而且能看到意見一條一條長出來
+const liveFindings = ref<ReviewFinding[]>([])
+let streamController: AbortController | null = null
+
+function startStream() {
+  stopStream()
+  liveFindings.value = []
+  const controller = new AbortController()
+  streamController = controller
+
+  api
+    .streamReview(
+      props.id,
+      async (event) => {
+        if (event.type === 'finding') {
+          // 只收目前版本的意見；舊版本晚到的訊息直接丟掉
+          if (event.version === request.value?.version) liveFindings.value.push(event.finding)
+        } else if (event.status !== 'reviewing') {
+          // 預審結束（完成或失敗）：關掉連線，重新載入以後端存下的正式結果為準
+          stopStream()
+          await load()
+        }
+      },
+      controller.signal,
+    )
+    .catch(() => {
+      // 我們自己 abort 的不算錯誤；其他的才是真的斷線
+      if (!controller.signal.aborted) error.value = '即時連線中斷，請重新整理頁面'
+    })
 }
-function stopPolling() {
-  if (timer) clearInterval(timer)
-  timer = undefined
+
+function stopStream() {
+  streamController?.abort()
+  streamController = null
 }
 
 async function send(event: RequestEvent) {
@@ -44,7 +66,7 @@ async function send(event: RequestEvent) {
   try {
     await api.sendEvent(props.id, event)
     await load()
-    if (reviewing.value) startPolling()
+    if (reviewing.value) startStream()
   } catch (e) {
     error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
   } finally {
@@ -61,10 +83,10 @@ const canAct = computed(
 onMounted(async () => {
   const [, p] = await Promise.all([load(), api.listPolicies()])
   policies.value = p
-  if (reviewing.value) startPolling()
+  if (reviewing.value) startStream()
 })
-// 離開頁面一定要清掉計時器，不然會在背景一直打 API
-onUnmounted(stopPolling)
+// 離開頁面一定要關掉連線，不然後端會一直以為有人在看
+onUnmounted(stopStream)
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleString('zh-TW', { hour12: false })
@@ -102,6 +124,7 @@ function formatTime(iso: string) {
       <ReviewPanel
         :review="request.review"
         :reviewing="reviewing"
+        :live-findings="liveFindings"
         :active-citation="activeCitation"
         @cite="activeCitation = $event"
       />

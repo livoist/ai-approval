@@ -45,6 +45,11 @@ export interface RequestDetail extends ApprovalRequest {
   review: AiReview | null
 }
 
+// SSE 推播的事件，跟 apps/server/src/request-service.ts 的 ReviewStreamEvent 一致
+export type ReviewStreamEvent =
+  | { type: 'finding'; version: number; finding: ReviewFinding }
+  | { type: 'status'; status: RequestStatus }
+
 export interface PolicyChunk {
   id: string
   docTitle: string

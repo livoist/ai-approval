@@ -53,6 +53,22 @@ describe('AI 預審流程', () => {
     expect(service.getLatestReview(r.id)).toMatchObject({ status: 'failed', error: 'timeout' })
   })
 
+  it('伺服器重啟後，接續處理卡在預審中的申請單', async () => {
+    const store = createStore()
+
+    // 模擬重啟前：送出後、還沒審完伺服器就停了（沒有 reviewer，所以不會自動預審）
+    const before = createRequestService(store)
+    const r = before.createRequest(alice, { title: '高壓設備維修', description: '' })
+    before.sendEvent(r.id, 'SUBMIT', alice)
+    expect(before.getRequest(r.id)?.status).toBe('reviewing')
+
+    // 模擬重啟後：同一份資料、新的 service
+    const after = createRequestService(store, mockReviewer)
+    expect(after.resumeInterruptedReviews()).toBe(1)
+    await after.waitForReview(r.id)
+    expect(after.getRequest(r.id)?.status).toBe('pending_approval')
+  })
+
   it('預審進行中主管還不能核准，跑完才進入待簽核', async () => {
     // 一個要等我們「放行」才會回傳結果的審查員，用來模擬 AI 思考中
     let release!: () => void
