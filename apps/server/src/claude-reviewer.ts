@@ -39,7 +39,7 @@ const SYSTEM_PROMPT = `你是企業內部的簽核預審助理，負責依據公
 
 明確的規範（例如電壓門檻、金額門檻、必附文件）已經由系統的規則引擎檢查過，結果會一併提供。
 你的工作是規則引擎做不到的判斷，例如：
-- 故障說明是否具體到足以讓維修人員事先準備
+- 申請人的說明（故障說明、報銷事由等）是否具體、足以讓審核者判斷
 - 填寫內容是否前後矛盾（例如說明裡提到的狀況與欄位不符）
 - 其他依規範需要人工判讀的疑慮
 
@@ -77,7 +77,7 @@ export function createClaudeReviewer(options: { apiKey: string; model: string })
               role: 'user',
               content: [
                 `## 規範條文\n${formatPolicies(policies)}`,
-                `## 申請單\n標題：${input.title}\n${input.details.map((d) => `${d.label}：${d.value}`).join('\n')}`,
+                `## 申請單（${input.formTitle}）\n標題：${input.title}\n${input.details.map((d) => `${d.label}：${d.value}`).join('\n')}`,
                 `## 規則引擎已檢查出的問題\n${
                   input.ruleFindings.length === 0
                     ? '（無）'

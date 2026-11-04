@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { MAINTENANCE_FORM, describeValues, type FormValues, type RequestEvent } from '@ai-approval/shared'
+import { describeValues, getFormKind, type FormValues, type RequestEvent } from '@ai-approval/shared'
 import { ApiError, api } from '../api'
 import ActionButtons from '../components/ActionButtons.vue'
 import PolicyPanel from '../components/PolicyPanel.vue'
@@ -100,8 +100,10 @@ const canAct = computed(
 )
 
 // 填寫內容轉成「標籤：值」的清單來顯示，跟 AI 讀到的是同一份
+// 用「這張單自己的」表單定義來顯示：設備維修和費用報銷的欄位完全不同
+const formDef = computed(() => (request.value ? getFormKind(request.value.formType).def : null))
 const details = computed(() =>
-  request.value ? describeValues(MAINTENANCE_FORM, request.value.fields) : [],
+  request.value && formDef.value ? describeValues(formDef.value, request.value.fields) : [],
 )
 
 // 修改內容：只有申請人本人，在草稿或待補件時可以改（跟後端 updateRequest 的規則一致）
@@ -135,8 +137,9 @@ async function save(title: string, fields: FormValues) {
 }
 
 onMounted(async () => {
-  const [, p] = await Promise.all([load(), api.listPolicies()])
-  policies.value = p
+  // 先載入申請單，才知道要拿哪一份規範文件
+  await load()
+  if (request.value) policies.value = await api.listPolicies(request.value.formType)
   if (reviewing.value) startStream()
 })
 // 離開頁面一定要關掉連線，不然後端會一直以為有人在看
@@ -159,11 +162,12 @@ function formatTime(iso: string) {
           <span class="badge" data-testid="status">{{ STATUS_LABEL[request.status] }}</span>
         </div>
         <p class="mt-1 text-sm text-muted">
-          申請人 {{ request.applicantId }} · 第 {{ request.version }} 版
+          {{ formDef?.title }} · 申請人 {{ request.applicantId }} · 第 {{ request.version }} 版
         </p>
         <!-- 修改模式：同一個表單元件，帶入目前的內容 -->
         <div v-if="editing" class="mt-4">
           <RequestForm
+            :form-type="request.formType"
             :initial-title="request.title"
             :initial-fields="request.fields"
             submit-label="儲存"

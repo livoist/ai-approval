@@ -29,7 +29,7 @@ describe('HTTP API', () => {
     const created = await request(app)
       .post('/requests')
       .set(asAlice)
-      .send({ title: '高壓設備維修', fields: INCOMPLETE_HIGH_VOLTAGE })
+      .send({ formType: 'maintenance', title: '高壓設備維修', fields: INCOMPLETE_HIGH_VOLTAGE })
       .expect(201)
 
     const submitted = await request(app)
@@ -42,7 +42,7 @@ describe('HTTP API', () => {
   })
 
   it('主管不能核准草稿 → 409', async () => {
-    const created = await request(app).post('/requests').set(asAlice).send({ title: '維修', fields: COMPLETE_LOW_VOLTAGE })
+    const created = await request(app).post('/requests').set(asAlice).send({ formType: 'maintenance', title: '維修', fields: COMPLETE_LOW_VOLTAGE })
     const res = await request(app)
       .post(`/requests/${created.body.id}/events`)
       .set(asManager)
@@ -52,7 +52,7 @@ describe('HTTP API', () => {
   })
 
   it('主管不能建立申請單 → 403', async () => {
-    await request(app).post('/requests').set(asManager).send({ title: '維修', fields: COMPLETE_LOW_VOLTAGE }).expect(403)
+    await request(app).post('/requests').set(asManager).send({ formType: 'maintenance', title: '維修', fields: COMPLETE_LOW_VOLTAGE }).expect(403)
   })
 
   it('標題必填 → 400', async () => {
@@ -63,7 +63,7 @@ describe('HTTP API', () => {
     const res = await request(app)
       .post('/requests')
       .set(asAlice)
-      .send({ title: '維修', fields: { ...COMPLETE_LOW_VOLTAGE, equipmentId: 'abc' } })
+      .send({ formType: 'maintenance', title: '維修', fields: { ...COMPLETE_LOW_VOLTAGE, equipmentId: 'abc' } })
       .expect(400)
     expect(res.body.error).toBe('invalid_fields')
     expect(Object.keys(res.body.fieldErrors)).toEqual(['equipmentId'])
@@ -73,7 +73,7 @@ describe('HTTP API', () => {
     const created = await request(app)
       .post('/requests')
       .set(asAlice)
-      .send({ title: '維修', fields: COMPLETE_LOW_VOLTAGE })
+      .send({ formType: 'maintenance', title: '維修', fields: COMPLETE_LOW_VOLTAGE })
     const body = { title: '改過的標題', fields: COMPLETE_LOW_VOLTAGE }
     await request(app).put(`/requests/${created.body.id}`).set(asAlice).send(body).expect(200)
     await request(app)
@@ -89,7 +89,7 @@ describe('評價 AI 意見 API', () => {
   async function reviewedRequest() {
     const service = createRequestService(createStore(), mockReviewer)
     const app = createApp(service)
-    const created = await request(app).post('/requests').set(asAlice).send({ title: '高壓設備維修', fields: INCOMPLETE_HIGH_VOLTAGE })
+    const created = await request(app).post('/requests').set(asAlice).send({ formType: 'maintenance', title: '高壓設備維修', fields: INCOMPLETE_HIGH_VOLTAGE })
     await request(app).post(`/requests/${created.body.id}/events`).set(asAlice).send({ event: 'SUBMIT' })
     await service.waitForReview(created.body.id)
     const detail = await request(app).get(`/requests/${created.body.id}`).set(asManager)

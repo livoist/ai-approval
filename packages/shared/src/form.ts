@@ -2,7 +2,7 @@
 //
 // 好處：
 // 1. 前端照著定義畫出表單，後端照著同一份定義驗證，規則永遠一致
-// 2. 要新增一種申請單（例如費用申請），只要多寫一份定義，不用寫新的頁面
+// 2. 要新增一種申請單，只要多寫一份定義，不用寫新的頁面（見 forms/ 資料夾）
 // 3. 定義本身可以存進資料庫，讓管理者自己調整欄位（之後的延伸方向）
 
 export type FieldValue = string | number | boolean | null
@@ -18,6 +18,7 @@ interface BaseField {
   help?: string
   required?: boolean
   showIf?: Condition
+  defaultValue?: FieldValue // 開新表單時的預設值
 }
 
 export type FieldDef =
@@ -27,6 +28,7 @@ export type FieldDef =
   | (BaseField & { type: 'select'; options: string[] })
   | (BaseField & { type: 'boolean' })
   | (BaseField & { type: 'datetime' })
+  | (BaseField & { type: 'date' })
 
 export interface FormSection {
   title: string
@@ -41,71 +43,6 @@ export interface FormDef {
   sections: FormSection[]
 }
 
-// ===== 設備維修申請單 =====
-// 注意「高壓作業」區塊的欄位都不是必填：
-// 表單只擋「格式錯誤」，規範要求的東西沒填，交給規則引擎標記出來（見 rules.ts）
-// 這樣申請人緊急時還是可以先送出，主管會在預審結果裡清楚看到缺了什麼
-export const MAINTENANCE_FORM: FormDef = {
-  id: 'maintenance',
-  title: '設備維修申請',
-  sections: [
-    {
-      title: '設備資訊',
-      fields: [
-        {
-          key: 'equipmentId',
-          label: '設備編號',
-          type: 'text',
-          required: true,
-          placeholder: 'HV-0207',
-          pattern: '^[A-Z]{2}-\\d{4}$',
-          patternHint: '格式為兩個大寫英文字母、一個連字號、四位數字，例如 HV-0207',
-        },
-        {
-          key: 'area',
-          label: '所在廠區',
-          type: 'select',
-          required: true,
-          options: ['A 廠區', 'B 廠區', 'C 廠區'],
-        },
-        { key: 'voltage', label: '額定電壓', type: 'number', unit: 'V', required: true, min: 0 },
-        { key: 'estimatedCost', label: '預估費用', type: 'number', unit: '元', required: true, min: 0 },
-      ],
-    },
-    {
-      title: '故障狀況',
-      fields: [
-        {
-          key: 'faultDescription',
-          label: '故障說明',
-          type: 'textarea',
-          required: true,
-          minLength: 5,
-          placeholder: '發生什麼現象、什麼時候開始、目前影響範圍……',
-        },
-        { key: 'isDown', label: '設備已停機', type: 'boolean' },
-        {
-          key: 'downSince',
-          label: '停機起始時間',
-          type: 'datetime',
-          required: true,
-          showIf: { field: 'isDown', equals: true },
-        },
-      ],
-    },
-    {
-      title: '高壓作業安全',
-      description: '額定電壓 480V 以上的設備須填寫',
-      showIf: { field: 'voltage', gte: 480 },
-      fields: [
-        { key: 'lockoutBy', label: '斷電執行人員', type: 'text', placeholder: '例如：電氣課 陳工程師' },
-        { key: 'lockoutAt', label: '斷電完成時間', type: 'datetime' },
-        { key: 'lotoDone', label: '作業區域已實施上鎖掛牌（LOTO）', type: 'boolean' },
-      ],
-    },
-  ],
-}
-
 // ===== 表單工具函式（前後端共用）=====
 
 const isEmpty = (v: FieldValue | undefined) => v === null || v === undefined || v === ''
@@ -115,6 +52,17 @@ export function matches(condition: Condition | undefined, values: FormValues) {
   const v = values[condition.field]
   if ('equals' in condition) return v === condition.equals
   return typeof v === 'number' && v >= condition.gte
+}
+
+// 新表單的初始值：有寫 defaultValue 的用它；勾選框沒寫的一律預設不勾
+// 「沒勾」跟「沒填」意義不同，所以勾選框要有明確的 false，而不是留空
+export function defaultValues(def: FormDef): FormValues {
+  const values: FormValues = {}
+  for (const f of def.sections.flatMap((s) => s.fields)) {
+    if (f.defaultValue !== undefined) values[f.key] = f.defaultValue
+    else if (f.type === 'boolean') values[f.key] = false
+  }
+  return values
 }
 
 // 依目前填寫的內容，算出「現在看得到」的欄位
@@ -169,6 +117,7 @@ export function validateValues(def: FormDef, values: FormValues): Record<string,
         if (typeof v !== 'boolean') errors[f.key] = `${f.label}格式不正確`
         break
       case 'datetime':
+      case 'date':
         if (typeof v !== 'string' || Number.isNaN(Date.parse(v)))
           errors[f.key] = `${f.label}格式不正確`
         break

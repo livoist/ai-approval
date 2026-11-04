@@ -1,11 +1,11 @@
-import type { ActorRole, AuditAction, Finding, FormValues, RequestStatus } from '@ai-approval/shared'
+import type { ActorRole, AuditAction, Finding, FormType, FormValues, RequestStatus } from '@ai-approval/shared'
 
 // 後端 API 回傳的資料形狀
 // 目前跟 apps/server/src/store.ts 各寫一份；之後可以搬到 shared，讓前後端只維護一份
 
 export interface ApprovalRequest {
   id: string
-  formType: string
+  formType: FormType
   title: string
   fields: FormValues
   applicantId: string
@@ -61,6 +61,7 @@ export type ReviewStreamEvent =
 
 export interface PolicyChunk {
   id: string
+  docId: string
   docTitle: string
   section: string
   text: string

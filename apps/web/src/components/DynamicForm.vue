@@ -101,6 +101,16 @@ const text = (v: FieldValue | undefined) => (v === null || v === undefined ? '' 
           />
 
           <input
+            v-else-if="field.type === 'date'"
+            :id="field.key"
+            type="date"
+            class="field"
+            :value="text(values[field.key])"
+            :aria-invalid="!!errors[field.key]"
+            @input="setText(field.key, $event)"
+          />
+
+          <input
             v-else-if="field.type === 'datetime'"
             :id="field.key"
             type="datetime-local"

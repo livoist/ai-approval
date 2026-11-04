@@ -1,21 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import {
-  MAINTENANCE_FORM,
+  defaultValues,
+  getFormKind,
   normalizeValues,
   runRules,
   validateValues,
+  type FormType,
   type FormValues,
 } from '@ai-approval/shared'
 import { SAMPLE_REQUESTS, type SampleRequest } from '../samples'
 import DynamicForm from './DynamicForm.vue'
 
-// 申請單表單：建立和修改共用同一個元件
+// 申請單表單：建立和修改共用同一個元件，也不管是哪一種申請單
 // 1. 標題 + 動態表單
 // 2. 邊填邊跑規則引擎，即時告訴申請人「這樣送出會被標記什麼」
 // 3. 前端先驗證一次（跟後端同一套規則），後端回傳的錯誤也顯示在對應欄位
 
 const props = defineProps<{
+  formType: FormType
   initialTitle?: string
   initialFields?: FormValues
   submitLabel: string
@@ -29,9 +32,11 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-const def = MAINTENANCE_FORM
+// 切換申請單類型時，父元件會用 :key 重建這個元件，所以這裡讀一次就好
+const def = getFormKind(props.formType).def
 const title = ref(props.initialTitle ?? '')
-const values = ref<FormValues>({ isDown: false, lotoDone: false, ...props.initialFields })
+const values = ref<FormValues>({ ...defaultValues(def), ...props.initialFields })
+const samples = SAMPLE_REQUESTS.filter((s) => s.formType === props.formType)
 
 // 按過送出之後才顯示前端驗證的紅字：一打開表單就滿滿紅字，體驗很差
 const attempted = ref(false)
@@ -48,7 +53,7 @@ const shownErrors = computed(() => ({
 }))
 
 // 即時規範檢查：跟後端預審用的是同一個 runRules
-const hints = computed(() => runRules(normalizeValues(def, values.value)))
+const hints = computed(() => runRules(props.formType, normalizeValues(def, values.value)))
 
 const HINT_KIND = {
   missing: { label: '缺漏', class: 'text-danger' },
@@ -59,7 +64,7 @@ const HINT_KIND = {
 
 function fillSample(sample: SampleRequest) {
   title.value = sample.title
-  values.value = { isDown: false, lotoDone: false, ...sample.fields }
+  values.value = { ...defaultValues(def), ...sample.fields }
   attempted.value = false
 }
 
@@ -76,7 +81,7 @@ function submit() {
       <p class="mb-2 text-xs text-muted">帶入範例資料（測試用）</p>
       <div class="flex flex-wrap gap-1.5">
         <button
-          v-for="s in SAMPLE_REQUESTS"
+          v-for="s in samples"
           :key="s.label"
           type="button"
           class="btn px-2.5 py-1 text-xs"
@@ -90,7 +95,7 @@ function submit() {
 
     <div class="grid gap-1 text-sm">
       <label for="title">標題 <span class="text-danger">*</span></label>
-      <input id="title" v-model="title" class="field" placeholder="例如：3 號產線高壓馬達維修" />
+      <input id="title" v-model="title" class="field" :placeholder="`${def.title}的標題`" />
       <p v-if="shownErrors.title" class="text-xs text-danger">{{ shownErrors.title }}</p>
     </div>
 
@@ -108,7 +113,7 @@ function submit() {
           {{ h.message }}
         </li>
       </ul>
-      <p class="mt-2 text-xs text-muted">送出後，AI 會再檢查說明內容是否具體、前後是否一致。</p>
+      <p class="mt-2 text-xs text-muted">送出後，AI 會再檢查說明是否具體、內容前後是否一致。</p>
     </div>
 
     <div class="flex justify-end gap-2">

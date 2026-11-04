@@ -1,6 +1,12 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { MAINTENANCE_FORM, type FormValues, type RequestEvent } from '@ai-approval/shared'
-import { POLICY_CHUNKS } from './policies'
+import {
+  FORM_TYPES,
+  getFormKind,
+  isFormType,
+  type FormValues,
+  type RequestEvent,
+} from '@ai-approval/shared'
+import { POLICY_CHUNKS, policiesFor } from './policies'
 import type { CurrentUser, RequestService } from './request-service'
 
 // 擴充 Express 的 Request 型別，讓 req.user 有型別提示
@@ -17,6 +23,7 @@ const STATUS_CODE = {
   not_found: 404, // 找不到這張單
   forbidden: 403, // 有這個動作，但你沒權限
   invalid_transition: 409, // 這張單目前的狀態不能做這件事（Conflict）
+  unknown_form_type: 400, // 沒有這種申請單
 } as const
 
 const FEEDBACK_STATUS_CODE = {
@@ -26,9 +33,10 @@ const FEEDBACK_STATUS_CODE = {
 } as const
 
 // 從 request body 取出表單資料；型別不對就當成空的，交給 service 的驗證去擋
-function readFormInput(body: unknown): { title: string; fields: FormValues } {
-  const b = (body ?? {}) as { title?: unknown; fields?: unknown }
+function readFormInput(body: unknown): { formType: unknown; title: string; fields: FormValues } {
+  const b = (body ?? {}) as { formType?: unknown; title?: unknown; fields?: unknown }
   return {
+    formType: b.formType,
     title: typeof b.title === 'string' ? b.title : '',
     fields: b.fields && typeof b.fields === 'object' ? (b.fields as FormValues) : {},
   }
@@ -93,14 +101,25 @@ export function createApp(service: RequestService) {
     res.json(result.request)
   })
 
-  // 表單定義：前端照著它畫出表單
-  app.get('/forms/maintenance', (_req, res) => {
-    res.json(MAINTENANCE_FORM)
+  // 有哪些申請單可以建立（之後可以依部門、角色過濾）
+  app.get('/forms', (_req, res) => {
+    res.json(FORM_TYPES.map((type) => ({ type, title: getFormKind(type).def.title })))
+  })
+
+  // 某一種申請單的表單定義：前端照著它畫出表單
+  app.get('/forms/:type', (req, res) => {
+    if (!isFormType(req.params.type)) {
+      res.status(404).json({ error: 'not_found' })
+      return
+    }
+    res.json(getFormKind(req.params.type).def)
   })
 
   // 規範條文：前端點引用時，用 id 查出原文來高亮
-  app.get('/policies', (_req, res) => {
-    res.json(POLICY_CHUNKS)
+  // 帶 ?formType=expense 只回傳那種申請單依據的規範；不帶就全部回傳
+  app.get('/policies', (req, res) => {
+    const { formType } = req.query
+    res.json(isFormType(formType) ? policiesFor(formType) : POLICY_CHUNKS)
   })
 
   // 單一申請單 + 完整歷史 + 對應目前版本的 AI 預審結果

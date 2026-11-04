@@ -1,5 +1,5 @@
 // 測試用的共用資料
-import type { FormValues } from '@ai-approval/shared'
+import type { FormType, FormValues } from '@ai-approval/shared'
 import type { CurrentUser, RequestService } from './request-service'
 
 export const alice: CurrentUser = { id: 'alice', role: 'applicant' }
@@ -28,14 +28,25 @@ export const INCOMPLETE_HIGH_VOLTAGE: FormValues = {
   isDown: false,
 }
 
+// 資料完整的交通費報銷 → 規則與 AI 都沒有意見（日期用近幾天，不會觸發 60 天期限）
+export const COMPLETE_EXPENSE: FormValues = {
+  expenseType: '交通費',
+  amount: 1250,
+  expenseDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  purpose: '前往新竹科學園區客戶端進行設備驗收，台北新竹往返高鐵票',
+  hasInvoice: true,
+  invoiceNumber: 'AB-12345678',
+}
+
 // 建立申請單，失敗就直接讓測試報錯（測試裡大多只關心建立之後的事）
 export function mustCreate(
   service: RequestService,
   user: CurrentUser,
   fields: FormValues = COMPLETE_LOW_VOLTAGE,
   title = '設備維修',
+  formType: FormType = 'maintenance',
 ) {
-  const result = service.createRequest(user, { title, fields })
+  const result = service.createRequest(user, { formType, title, fields })
   if (!result.ok) throw new Error(`createRequest failed: ${JSON.stringify(result)}`)
   return result.request
 }

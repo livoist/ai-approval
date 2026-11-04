@@ -108,3 +108,32 @@ test('權限：別人的申請單看得到，但不能操作', async ({ page }) 
   await expect(page.getByRole('button', { name: '送出', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '修改內容' })).toHaveCount(0)
 })
+
+test('第二種申請單：費用報銷用自己的表單、規則與規範文件', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'alice')
+  await page.getByRole('tab', { name: '費用報銷申請' }).click()
+
+  // 表單換成報銷單的欄位；選業務招待費才出現招待對象區塊
+  await expect(page.getByLabel('報銷事由')).toBeVisible()
+  await expect(page.getByLabel('設備編號')).toHaveCount(0)
+  await page.getByLabel('費用類別').selectOption('業務招待費')
+  await expect(page.getByText('招待對象', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: '招待超標・事由簡略' }).click()
+  await page.getByRole('button', { name: '建立草稿' }).click()
+  await expect(status(page)).toHaveText('草稿')
+  await page.getByRole('button', { name: '送出', exact: true }).click()
+  await expect(status(page)).toHaveText('待簽核')
+
+  // 規則：每人超過 2,000 元；AI：事由太籠統
+  await expect(findings(page, 'rule')).toHaveCount(1)
+  await expect(findings(page, 'ai')).toHaveCount(1)
+  await expect(findings(page, 'rule')).toContainText('每人平均 3,000 元')
+
+  // 規範面板顯示的是報銷辦法，不是設備維修規範
+  await expect(page.getByRole('heading', { name: '費用報銷作業辦法' })).toBeVisible()
+  await page.getByRole('button', { name: 'fin-5.1' }).click()
+  await expect(page.getByTestId('policy-fin-5.1')).toHaveClass(/bg-highlight/)
+  await expect(page.getByTestId('policy-sop-4.2')).toHaveCount(0)
+})

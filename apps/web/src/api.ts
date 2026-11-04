@@ -1,4 +1,4 @@
-import { createSseParser, type FormValues, type RequestEvent } from '@ai-approval/shared'
+import { createSseParser, type FormType, type FormValues, type RequestEvent } from '@ai-approval/shared'
 import { currentUser } from './session'
 import type {
   ApprovalRequest,
@@ -38,7 +38,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listRequests: () => call<ApprovalRequest[]>('/requests'),
   getRequest: (id: string) => call<RequestDetail>(`/requests/${id}`),
-  createRequest: (input: { title: string; fields: FormValues }) =>
+  createRequest: (input: { formType: FormType; title: string; fields: FormValues }) =>
     call<ApprovalRequest>('/requests', { method: 'POST', body: JSON.stringify(input) }),
   updateRequest: (id: string, input: { title: string; fields: FormValues }) =>
     call<ApprovalRequest>(`/requests/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
@@ -47,7 +47,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ event }),
     }),
-  listPolicies: () => call<PolicyChunk[]>('/policies'),
+  // 只拿這種申請單依據的規範文件
+  listPolicies: (formType: FormType) => call<PolicyChunk[]>(`/policies?formType=${formType}`),
   giveFeedback: (
     id: string,
     reviewId: string,

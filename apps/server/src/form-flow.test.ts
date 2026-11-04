@@ -13,6 +13,7 @@ beforeEach(() => {
 describe('建立申請單：表單驗證', () => {
   it('格式錯誤時回傳每個欄位的錯誤訊息', () => {
     const result = service.createRequest(alice, {
+      formType: 'maintenance',
       title: '維修',
       fields: { ...COMPLETE_LOW_VOLTAGE, equipmentId: 'abc', voltage: null },
     })
@@ -23,14 +24,18 @@ describe('建立申請單：表單驗證', () => {
   })
 
   it('標題必填', () => {
-    expect(service.createRequest(alice, { title: '  ', fields: COMPLETE_LOW_VOLTAGE })).toMatchObject({
+    expect(service.createRequest(alice, {
+      formType: 'maintenance',
+      title: '  ', fields: COMPLETE_LOW_VOLTAGE })).toMatchObject({
       reason: 'invalid_fields',
       fieldErrors: { title: '請填寫標題' },
     })
   })
 
   it('主管不能建立申請單', () => {
-    expect(service.createRequest(manager, { title: '維修', fields: COMPLETE_LOW_VOLTAGE })).toEqual({
+    expect(service.createRequest(manager, {
+      formType: 'maintenance',
+      title: '維修', fields: COMPLETE_LOW_VOLTAGE })).toEqual({
       ok: false,
       reason: 'forbidden',
     })

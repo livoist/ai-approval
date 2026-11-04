@@ -1,18 +1,20 @@
 import { randomUUID } from 'node:crypto'
 import {
-  MAINTENANCE_FORM,
   describeValues,
+  getFormKind,
+  isFormType,
   normalizeValues,
   runRules,
   transition,
   validateValues,
   type ActorRole,
   type Finding,
+  type FormType,
   type FormValues,
   type RequestEvent,
   type RequestStatus,
 } from '@ai-approval/shared'
-import { POLICY_CHUNKS } from './policies'
+import { policiesFor } from './policies'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
 import type { ApprovalRequest, FindingFeedback, Store } from './store'
 
@@ -90,31 +92,35 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
   // 用表單定義檢查填寫內容：格式錯誤一律擋下，不讓不合法的資料進資料庫
   // 跟前端用的是同一個 validateValues，所以前端擋得住的，後端一定也擋得住
   type FormInput = { title: string; fields: FormValues }
+  type CreateInput = FormInput & { formType: unknown }
   type FormCheck =
     | { ok: true; title: string; fields: FormValues }
     | { ok: false; reason: 'invalid_fields'; fieldErrors: Record<string, string> }
 
-  function checkForm(input: FormInput): FormCheck {
-    const fieldErrors = validateValues(MAINTENANCE_FORM, input.fields)
+  // 用「這種申請單」的表單定義檢查：設備維修跟費用報銷的欄位、規則完全不同，但檢查的方式一樣
+  function checkForm(formType: FormType, input: FormInput): FormCheck {
+    const { def } = getFormKind(formType)
+    const fieldErrors = validateValues(def, input.fields)
     if (input.title.trim() === '') fieldErrors.title = '請填寫標題'
     if (Object.keys(fieldErrors).length > 0) return { ok: false, reason: 'invalid_fields', fieldErrors }
-    return { ok: true, title: input.title.trim(), fields: normalizeValues(MAINTENANCE_FORM, input.fields) }
+    return { ok: true, title: input.title.trim(), fields: normalizeValues(def, input.fields) }
   }
 
   type CreateResult =
     | { ok: true; request: ApprovalRequest }
-    | { ok: false; reason: 'forbidden' }
+    | { ok: false; reason: 'forbidden' | 'unknown_form_type' }
     | Extract<FormCheck, { ok: false }>
 
-  function createRequest(user: CurrentUser, input: FormInput): CreateResult {
+  function createRequest(user: CurrentUser, input: CreateInput): CreateResult {
     if (user.role !== 'applicant') return { ok: false, reason: 'forbidden' }
-    const form = checkForm(input)
+    if (!isFormType(input.formType)) return { ok: false, reason: 'unknown_form_type' }
+    const form = checkForm(input.formType, input)
     if (!form.ok) return form
 
     const now = new Date().toISOString()
     const request: ApprovalRequest = {
       id: randomUUID(),
-      formType: MAINTENANCE_FORM.id,
+      formType: input.formType,
       title: form.title,
       fields: form.fields,
       applicantId: user.id,
@@ -152,7 +158,8 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     if (request.status !== 'draft' && request.status !== 'needs_info') {
       return { ok: false, reason: 'invalid_transition' }
     }
-    const form = checkForm(input)
+    // 申請單類型建立後就不能改：設備維修單不能改成報銷單
+    const form = checkForm(request.formType as FormType, input)
     if (!form.ok) return form
 
     const now = new Date().toISOString()
@@ -228,7 +235,12 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     }
 
     // 第一步：規則引擎。純程式判斷、瞬間完成，所以這些意見會最先出現在畫面上
-    const ruleFindings = runRules(request.fields)
+    const formType = request.formType as FormType
+    const kind = getFormKind(formType)
+    const policies = policiesFor(formType)
+    const narrative = request.fields[kind.narrativeField]
+
+    const ruleFindings = runRules(formType, request.fields)
     ruleFindings.forEach(emit)
 
     let outcome: 'done' | 'failed'
@@ -236,19 +248,22 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       // 第二步：AI。只負責規則做不到的模糊判斷，並且知道規則已經查到什麼，避免重複
       const raw = await reviewer.review(
         {
+          formType,
+          formTitle: kind.def.title,
           title: request.title,
           values: request.fields,
-          details: describeValues(MAINTENANCE_FORM, request.fields),
+          details: describeValues(kind.def, request.fields),
+          narrative: typeof narrative === 'string' ? narrative : '',
           ruleFindings,
         },
-        POLICY_CHUNKS,
+        policies,
         {
           signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
           // 每審出一條：先驗證引用、標上來源，再推播給正在看的人
-          onFinding: (f) => emit({ ...validateFinding(f, POLICY_CHUNKS), source: 'ai' }),
+          onFinding: (f) => emit({ ...validateFinding(f, policies), source: 'ai' }),
         },
       )
-      const ai = validateCitations(raw, POLICY_CHUNKS)
+      const ai = validateCitations(raw, policies)
 
       // 合併：規則的意見在前、AI 的在後；風險等級取兩邊較高的那一個
       store.appendReview({

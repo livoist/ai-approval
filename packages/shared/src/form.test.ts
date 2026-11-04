@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { MAINTENANCE_FORM as form, normalizeValues, validateValues, visibleFields } from './form'
-import { runRules } from './rules'
+import { defaultValues, normalizeValues, validateValues, visibleFields } from './form'
+import { EXPENSE_FORM, MAINTENANCE_FORM as form, runRules as runFormRules } from './forms'
+
+const runRules = (values: Parameters<typeof runFormRules>[1]) => runFormRules('maintenance', values)
 
 const base = {
   equipmentId: 'HV-0207',
@@ -84,5 +86,12 @@ describe('規則引擎', () => {
 
   it('規則產生的意見都標示來源為 rule', () => {
     expect(runRules({ ...base, voltage: 480 }).every((f) => f.source === 'rule')).toBe(true)
+  })
+})
+
+describe('預設值', () => {
+  it('勾選框沒寫預設值就是 false；有寫 defaultValue 的用它', () => {
+    expect(defaultValues(form)).toEqual({ isDown: false, lotoDone: false })
+    expect(defaultValues(EXPENSE_FORM)).toEqual({ hasInvoice: true })
   })
 })

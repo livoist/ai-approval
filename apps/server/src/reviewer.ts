@@ -1,4 +1,4 @@
-import type { Finding, FormValues } from '@ai-approval/shared'
+import type { Finding, FormType, FormValues } from '@ai-approval/shared'
 import type { PolicyChunk } from './policies'
 
 // AI 產生的意見：跟 Finding 一樣，只是還沒標上來源（由 service 補上 source: 'ai'）
@@ -12,9 +12,12 @@ export interface ReviewOutput {
 }
 
 export interface ReviewInput {
+  formType: FormType
+  formTitle: string // 例如「費用報銷申請」，讓 AI 知道它在審哪一種單
   title: string
   values: FormValues // 原始填寫內容（給程式判斷用）
   details: { label: string; value: string }[] // 轉成人看得懂的「標籤：值」（給 AI 讀）
+  narrative: string // 申請人自己寫的說明（故障說明、報銷事由……），AI 主要判斷這段寫得夠不夠具體
   ruleFindings: Finding[] // 規則引擎已經查到的問題，AI 不用再重複
 }
 
@@ -57,23 +60,30 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     })
   })
 
+// 假的審查員在每種申請單上「說明太簡略」時要引用的條文
+const VAGUE_NARRATIVE: Record<FormType, { cite: string; message: string }> = {
+  maintenance: {
+    cite: 'sop-3.2',
+    message: '故障說明過於簡略，維修人員可能難以事先判斷故障原因與所需零件。',
+  },
+  expense: {
+    cite: 'fin-2.2',
+    message: '報銷事由過於籠統，無法判斷這筆費用與業務的關聯。',
+  },
+}
+
 // 假的審查員：模擬 AI 負責的「模糊判斷」，結果固定、免費、不用網路
-// 硬性規則已經由規則引擎處理，這裡只示範 AI 會做的那種判斷：故障說明夠不夠具體
+// 硬性規則已經由規則引擎處理，這裡只示範 AI 會做的那種判斷：申請人的說明夠不夠具體
 // delayMs 模擬 AI 思考的時間，讓沒有 API key 也看得到「一條一條長出來」的串流效果
 export function createMockReviewer(options: { delayMs: number }): Reviewer {
   return {
     name: 'mock',
     async review(input, _policies, hooks) {
       const findings: AiFinding[] = []
-      const description = typeof input.values.faultDescription === 'string' ? input.values.faultDescription : ''
-
       await sleep(options.delayMs, hooks?.signal)
-      if (description.trim().length < 20) {
-        const finding: AiFinding = {
-          kind: 'risk',
-          message: '故障說明過於簡略，維修人員可能難以事先判斷故障原因與所需零件。',
-          citations: ['sop-3.2'],
-        }
+      if (input.narrative.trim().length < 20) {
+        const vague = VAGUE_NARRATIVE[input.formType]
+        const finding: AiFinding = { kind: 'risk', message: vague.message, citations: [vague.cite] }
         findings.push(finding)
         hooks?.onFinding?.(finding)
       }
