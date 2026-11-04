@@ -38,6 +38,7 @@ watch(
         v-for="p in policies"
         :key="p.id"
         :ref="(el) => setChunkEl(p.id, el)"
+        :data-testid="`policy-${p.id}`"
         class="mb-2 rounded-lg px-3 py-2.5 leading-relaxed transition-colors duration-300"
         :class="{
           'bg-highlight': p.id === activeCitation,

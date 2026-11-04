@@ -80,6 +80,8 @@ const sourceOf = (f: ReviewFinding) => SOURCE[f.source ?? 'ai']
         <li
           v-for="(f, i) in findings"
           :key="`${i}-${f.message}`"
+          data-testid="finding"
+          :data-source="f.source ?? 'ai'"
           class="grid grid-cols-[auto_1fr_auto] items-start gap-2.5 rounded-lg px-3 py-2.5"
           :class="KIND[f.kind].class"
         >

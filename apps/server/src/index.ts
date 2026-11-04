@@ -15,9 +15,11 @@ try {
 const apiKey = process.env.ANTHROPIC_API_KEY
 const reviewer = apiKey
   ? createClaudeReviewer({ apiKey, model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5-5' })
-  : createMockReviewer({ delayMs: 800 }) // 每條意見間隔 0.8 秒，模擬 AI 思考
+  : // 每條意見間隔 0.8 秒，模擬 AI 思考；E2E 測試時調短，讓測試跑得快
+    createMockReviewer({ delayMs: Number(process.env.MOCK_DELAY_MS ?? 800) })
 
 // 資料存在 SQLite 檔案裡，重開伺服器也不會消失
+// DB_PATH 設成 :memory: 時只存在記憶體，E2E 測試每次都從乾淨的資料開始
 // 想清空重來：執行 pnpm --filter @ai-approval/server db:reset
 const DB_PATH = process.env.DB_PATH ?? 'data/app.db'
 mkdirSync(dirname(DB_PATH), { recursive: true })

@@ -6,3 +6,7 @@ dist
 
 # SQLite 資料庫檔案（每個人本機的資料，不進版控）
 data/
+
+# Playwright 產生的報告與失敗截圖
+e2e/test-results/
+e2e/playwright-report/

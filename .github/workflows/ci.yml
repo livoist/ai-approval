@@ -1,0 +1,55 @@
+# 每次 push 到 main、或開 Pull Request 時自動執行
+# 任何一步失敗，GitHub 上的 commit 旁邊就會出現紅色叉叉
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一個分支連續 push 時，取消前一次還在跑的，省時間
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 的版本讀 package.json 的 packageManager 欄位，跟你本機用的一致
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # --frozen-lockfile：lockfile 跟 package.json 對不上就直接失敗
+      # 確保 CI 裝的版本跟你本機一模一樣，不會「我電腦上明明可以」
+      - name: 安裝套件
+        run: pnpm install --frozen-lockfile
+
+      - name: 型別檢查
+        run: pnpm typecheck
+
+      - name: 單元測試
+        run: pnpm test
+
+      - name: 安裝 Playwright 瀏覽器
+        run: pnpm --filter @ai-approval/e2e exec playwright install --with-deps chromium
+
+      - name: E2E 測試
+        run: pnpm e2e
+
+      # E2E 失敗時把報告存下來，可以在 GitHub 上下載，打開就能看到每一步的截圖與錄影
+      - name: 上傳 E2E 報告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7

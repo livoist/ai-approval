@@ -8,6 +8,7 @@ import { DEMO_USERS, currentUser, switchUser } from './session'
     <label class="flex items-center gap-2 text-sm">
       <span class="text-muted">目前身分</span>
       <select
+        aria-label="目前身分"
         class="field w-auto"
         :value="currentUser.id"
         @change="switchUser(($event.target as HTMLSelectElement).value)"

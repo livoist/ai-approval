@@ -1,0 +1,110 @@
+import { expect, test, type Page } from '@playwright/test'
+
+// E2E 測試：用真的瀏覽器、真的前後端，照使用者的操作方式跑一遍
+// 單元測試確認「每個零件」是對的，E2E 確認「零件組起來」也是對的
+
+type UserId = 'alice' | 'bob' | 'manager'
+
+async function switchUser(page: Page, id: UserId) {
+  await page.getByLabel('目前身分').selectOption(id)
+}
+
+const status = (page: Page) => page.getByTestId('status')
+const findings = (page: Page, source?: 'rule' | 'ai') =>
+  page.locator(source ? `[data-testid="finding"][data-source="${source}"]` : '[data-testid="finding"]')
+
+// 用範例資料建立一張申請單並送出，等 AI 預審跑完
+async function createAndSubmit(page: Page, sample: string) {
+  await page.goto('/')
+  await switchUser(page, 'alice')
+  await page.getByRole('button', { name: sample }).click()
+  await page.getByRole('button', { name: '建立草稿' }).click()
+  await expect(status(page)).toHaveText('草稿')
+
+  await page.getByRole('button', { name: '送出', exact: true }).click()
+  await expect(status(page)).toHaveText('待簽核')
+}
+
+test('表單驗證：必填欄位擋下送出，高壓區塊依電壓出現', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'alice')
+
+  await page.getByRole('button', { name: '建立草稿' }).click()
+  await expect(page.getByText('請填寫標題')).toBeVisible()
+  await expect(page.getByText('請填寫設備編號')).toBeVisible()
+
+  // 低壓時看不到高壓作業區塊；改成 480V 就出現，即時檢查也跟著提示
+  await expect(page.getByText('高壓作業安全')).toHaveCount(0)
+  await page.getByLabel('額定電壓').fill('480')
+  await expect(page.getByText('高壓作業安全')).toBeVisible()
+  await expect(page.getByText(/須附斷電確認紀錄/)).toBeVisible()
+})
+
+test('AI 預審：規則與 AI 的意見分開標示，點引用會高亮規範原文', async ({ page }) => {
+  await createAndSubmit(page, '高壓・資料不全')
+
+  await expect(findings(page)).toHaveCount(3)
+  await expect(findings(page, 'rule')).toHaveCount(2)
+  await expect(findings(page, 'ai')).toHaveCount(1)
+  await expect(page.getByText('高風險')).toBeVisible()
+
+  await page.getByRole('button', { name: 'sop-4.2' }).click()
+  await expect(page.getByTestId('policy-sop-4.2')).toHaveClass(/bg-highlight/)
+})
+
+test('完整流程：評價 AI → 要求補件 → 申請人修改重送 → 核准', async ({ page }) => {
+  await createAndSubmit(page, '高壓・資料不全')
+
+  // 主管：標記 AI 的意見有誤，再要求補件
+  await switchUser(page, 'manager')
+  const aiFinding = findings(page, 'ai')
+  await aiFinding.getByRole('button', { name: '有誤' }).click()
+  await aiFinding.getByPlaceholder(/AI 錯在哪裡/).fill('說明雖短，但已足以判斷問題')
+  await aiFinding.getByRole('button', { name: '送出' }).click()
+  await expect(aiFinding.getByText('manager 標記為有誤')).toBeVisible()
+
+  // 規則的意見不能評價：結果是程式判斷的，沒有對錯可言
+  await expect(findings(page, 'rule').getByRole('button', { name: '有誤' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: '要求補件' }).click()
+  await expect(status(page)).toHaveText('待補件')
+
+  // 申請人：補上斷電紀錄與 LOTO，再重送
+  await switchUser(page, 'alice')
+  await page.getByRole('button', { name: '修改內容' }).click()
+  await page.getByLabel('斷電執行人員').fill('電氣課 陳工程師')
+  await page.getByLabel('斷電完成時間').fill('2026-11-04T09:00')
+  await page.getByLabel(/上鎖掛牌/).check()
+  await page.getByRole('button', { name: '儲存' }).click()
+
+  await page.getByRole('button', { name: '補件重送' }).click()
+  await expect(status(page)).toHaveText('待簽核')
+  await expect(page.getByText('第 2 版')).toBeVisible() // 補件重送後版本號 +1
+
+  // 規則的兩條問題都補齊了，只剩 AI 對說明的意見
+  await expect(findings(page, 'rule')).toHaveCount(0)
+  await expect(findings(page, 'ai')).toHaveCount(1)
+
+  // 主管核准
+  await switchUser(page, 'manager')
+  await page.getByRole('button', { name: '核准' }).click()
+  await expect(status(page)).toHaveText('已核准')
+
+  // 簽核紀錄完整留下每一步
+  for (const step of ['建立', '送出', 'AI 預審完成', '要求補件', '修改內容', '補件重送', '核准']) {
+    await expect(page.getByRole('listitem').filter({ hasText: step }).first()).toBeVisible()
+  }
+})
+
+test('權限：別人的申請單看得到，但不能操作', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'alice')
+  await page.getByRole('button', { name: '低壓・說明簡略' }).click()
+  await page.getByRole('button', { name: '建立草稿' }).click()
+  await expect(status(page)).toHaveText('草稿')
+
+  await switchUser(page, 'bob')
+  await expect(status(page)).toHaveText('草稿')
+  await expect(page.getByRole('button', { name: '送出', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '修改內容' })).toHaveCount(0)
+})

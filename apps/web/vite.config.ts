@@ -10,7 +10,8 @@ export default defineConfig({
     // 好處：瀏覽器以為是同一個網站，不會有 CORS 問題，前端程式碼也不用寫死後端網址
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // E2E 測試會另外開一組後端，所以網址可以用環境變數覆蓋
+        target: process.env.API_URL ?? 'http://localhost:3001',
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

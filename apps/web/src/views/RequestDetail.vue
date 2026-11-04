@@ -156,7 +156,7 @@ function formatTime(iso: string) {
       <section class="card">
         <div class="flex items-center gap-3">
           <h2 class="text-xl font-semibold">{{ request.title }}</h2>
-          <span class="badge">{{ STATUS_LABEL[request.status] }}</span>
+          <span class="badge" data-testid="status">{{ STATUS_LABEL[request.status] }}</span>
         </div>
         <p class="mt-1 text-sm text-muted">
           申請人 {{ request.applicantId }} · 第 {{ request.version }} 版
