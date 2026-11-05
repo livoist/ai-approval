@@ -4,8 +4,17 @@
 
 員工送出申請單時，系統依公司規範自動預審：**明確的規則交給程式判斷，模糊的判斷交給 AI**，每一條意見都附上規範條文依據。主管看著預審結果與原文並排簽核，AI 不做決定，全程可追溯。
 
-<!-- TODO：放上 30 秒 demo 影片或 GIF -->
-<!-- TODO：線上試用網址與測試帳號 -->
+**線上試用：[ai-approval.onrender.com](https://ai-approval.onrender.com)**
+不用註冊，右上角切換身分即可：Alice、Bob 是申請人，王經理是主管，林廠長是廠長。首頁有三步試玩導覽。
+免費方案閒置一段時間會休眠，第一次打開需要等 30～60 秒喚醒；資料只存在記憶體，喚醒後會重置成示範資料。
+
+![demo：送出申請 → 串流預審 → 點引用高亮 → 主管評價 → 兩層簽核 → AI 準確度 → 匯入規範 PDF](docs/demo.gif)
+
+| 預審意見與規範原文並排 | 規範決定簽核路線 |
+| --- | --- |
+| ![串流預審：規則與 AI 的意見分開標示，每條附條文](docs/screenshots/review.png) | ![兩層簽核：超過門檻的單，主管核准後還要廠長核准](docs/screenshots/approval-route.png) |
+| **AI 準確度儀表板** | **匯入規範 PDF** |
+| ![主管的評價累積成認同率、每日趨勢與最常出錯的條文](docs/screenshots/insights.png) | ![上傳 PDF 自動切成條文，主管確認後才存進規範庫](docs/screenshots/import.png) |
 
 ## 解決什麼問題
 
@@ -135,6 +144,7 @@ pnpm --filter @ai-approval/server db:reset
 pnpm typecheck           # 所有套件的型別檢查
 pnpm test                # 單元測試與 API 測試
 pnpm e2e                 # 端對端測試：會自動啟動一組獨立的前後端（port 3101、5273）
+pnpm demo:record         # 照 demo 腳本操作一遍，重新錄製 docs/ 裡的影片與截圖
 ```
 
 E2E 用真的瀏覽器跑完整流程：填單驗證、AI 預審、點引用高亮、主管評價、要求補件、修改重送、核准、權限、清單篩選、第二種申請單、兩層簽核、AI 準確度儀表板，以及匯入規範 PDF。CI 在每次 push 時跑以上全部。

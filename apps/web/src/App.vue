@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { isApproverRole } from '@ai-approval/shared'
+import DemoGuide from './components/DemoGuide.vue'
 import { meta, refreshMeta } from './meta'
 import { DEMO_USERS, currentUser, switchUser } from './session'
 
@@ -14,6 +16,29 @@ const APPROVER_LINKS = [
 // 公開 demo 時顯示提示；拿不到就當作一般環境，不影響其他功能
 // 預審完成時，詳情頁會呼叫 refreshMeta()，AI 用量就會即時更新
 onMounted(refreshMeta)
+
+// 試玩導覽：公開 demo 的首頁才顯示；收起來之後記在瀏覽器裡，下次不會再跳出來
+// localStorage 可能被瀏覽器擋掉（無痕模式），拿不到就當作還沒收起
+const GUIDE_KEY = 'demo-guide-closed'
+const route = useRoute()
+const guideClosed = ref(readGuideClosed())
+const showGuide = computed(() => meta.value?.demo && !guideClosed.value && route.path === '/')
+
+function readGuideClosed() {
+  try {
+    return localStorage.getItem(GUIDE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function setGuideClosed(closed: boolean) {
+  guideClosed.value = closed
+  try {
+    if (closed) localStorage.setItem(GUIDE_KEY, '1')
+    else localStorage.removeItem(GUIDE_KEY)
+  } catch {}
+}
 </script>
 
 <template>
@@ -58,9 +83,18 @@ onMounted(refreshMeta)
     <template v-if="meta.ai && meta.ai.limit > 0">
       AI 預審今日已使用 {{ meta.ai.used }} / {{ meta.ai.limit }} 次，用完會改用模擬審查員。
     </template>
+    <button
+      v-if="guideClosed"
+      type="button"
+      class="cursor-pointer underline"
+      @click="setGuideClosed(false), $router.push('/')"
+    >
+      顯示試玩導覽
+    </button>
   </div>
 
   <main class="mx-auto max-w-6xl p-4 sm:p-6">
+    <DemoGuide v-if="showGuide" @close="setGuideClosed(true)" />
     <!-- 切換身分時用 key 強制重建頁面，讓資料用新身分重新載入 -->
     <RouterView :key="`${currentUser.id}-${$route.fullPath}`" />
   </main>

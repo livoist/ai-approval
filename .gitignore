@@ -10,3 +10,6 @@ data/
 # Playwright 產生的報告與失敗截圖
 e2e/test-results/
 e2e/playwright-report/
+
+# demo 錄影的原始檔（很大）；README 用的是轉好的 docs/demo.gif
+docs/demo.webm
