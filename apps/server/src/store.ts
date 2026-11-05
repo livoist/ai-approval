@@ -35,7 +35,27 @@ export interface AiReview {
   findings?: Finding[] // 規則引擎與 AI 的意見，依序排列
   error?: string
   reviewer: string // 用哪個模型（或 mock）審的
+  // 檢索：這次交給 AI 的是哪幾條規範。AI 只看得到這些，也只能引用這些
+  // 事後回頭查「AI 為什麼沒提到某條規定」時，先看它到底有沒有看到
+  retrievedPolicyIds?: string[]
   createdAt: string
+}
+
+// 主管匯入的規範文件（內建的規範寫在 policies.ts，不存在資料庫）
+export interface StoredPolicyDoc {
+  id: string // 代碼，也是條文 id 的前綴：trv → trv-1、trv-2……
+  formType: string // 給哪一種申請單用
+  title: string
+  fileName: string | null
+  createdBy: string
+  createdAt: string
+}
+
+export interface StoredPolicyChunk {
+  id: string
+  docId: string
+  section: string
+  text: string
 }
 
 // 主管對 AI 某一條意見的評價
@@ -62,6 +82,10 @@ export interface Store {
   listReviews(requestId: string): AiReview[]
   appendFeedback(f: FindingFeedback): void
   listFeedback(reviewId: string): FindingFeedback[]
+  // 文件與它的條文一起寫入：要嘛全部成功，要嘛全部沒發生，不會只存了一半的條文
+  appendPolicyDoc(doc: StoredPolicyDoc, chunks: StoredPolicyChunk[]): void
+  listPolicyDocs(): StoredPolicyDoc[]
+  listPolicyChunks(): StoredPolicyChunk[] // 依文件匯入順序、條文在文件中的順序
 }
 
 // 記憶體版：重開伺服器資料就會消失，但速度快、不用檔案，適合跑測試
@@ -70,6 +94,8 @@ export function createStore(): Store {
   const audit: AuditEvent[] = []
   const reviews: AiReview[] = []
   const feedback: FindingFeedback[] = []
+  const policyDocs: StoredPolicyDoc[] = []
+  const policyChunks: StoredPolicyChunk[] = []
 
   return {
     getRequest: (id) => requests.get(id),
@@ -89,5 +115,18 @@ export function createStore(): Store {
       feedback.push(f)
     },
     listFeedback: (reviewId) => feedback.filter((f) => f.reviewId === reviewId),
+    appendPolicyDoc: (doc, chunks) => {
+      // 跟 SQLite 的主鍵一樣：id 重複就整筆拒絕，而且要在改任何資料之前檢查
+      if (policyDocs.some((d) => d.id === doc.id)) throw new Error(`policy doc ${doc.id} already exists`)
+      const ids = new Set(policyChunks.map((c) => c.id))
+      for (const c of chunks) {
+        if (ids.has(c.id)) throw new Error(`policy chunk ${c.id} already exists`)
+        ids.add(c.id)
+      }
+      policyDocs.push(doc)
+      policyChunks.push(...chunks)
+    },
+    listPolicyDocs: () => [...policyDocs],
+    listPolicyChunks: () => [...policyChunks],
   }
 }

@@ -52,6 +52,7 @@ export interface AiReview {
   findings?: ReviewFinding[]
   error?: string
   reviewer: string
+  retrievedPolicyIds?: string[] // 這次交給 AI 的條文
 }
 
 export interface RequestDetail extends ApprovalRequest {
@@ -102,4 +103,28 @@ export interface AiStats {
     actorId: string
     at: string
   }[]
+}
+
+// 規範文件：內建的寫在後端程式裡，upload 是主管匯入的
+export interface PolicyDocSummary {
+  id: string
+  formType: FormType
+  title: string
+  source: 'builtin' | 'upload'
+  fileName: string | null
+  createdBy: string | null
+  createdAt: string | null
+  chunkCount: number
+}
+
+export interface ArticleDraft {
+  section: string
+  text: string
+}
+
+// 上傳 PDF 後，後端切好的條文草稿（還沒存起來）
+export interface PolicyImportPreview {
+  title: string
+  articles: ArticleDraft[]
+  pages: number
 }

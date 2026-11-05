@@ -62,7 +62,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     })
   })
 
-// 假的審查員在每種申請單上「說明太簡略」時要引用的條文
+// 假的審查員在每種申請單上「說明太簡略」時要引用的條文（核心條文，每次都會交給 AI）
 const VAGUE_NARRATIVE: Record<FormType, { cite: string; message: string }> = {
   maintenance: {
     cite: 'sop-3.2',

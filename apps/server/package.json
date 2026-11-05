@@ -15,7 +15,8 @@
     "@ai-approval/shared": "workspace:*",
     "@anthropic-ai/sdk": "^1.4.0",
     "better-sqlite3": "^13.0.3",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "pdfjs-dist": "^6.5.438"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

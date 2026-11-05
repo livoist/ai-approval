@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 
 // E2E 測試：用真的瀏覽器、真的前後端，照使用者的操作方式跑一遍
@@ -224,4 +225,43 @@ test('AI 準確度：主管的評價累積成統計，申請人看不到', async
   await switchUser(page, 'alice')
   await expect(page.getByRole('link', { name: 'AI 準確度' })).toHaveCount(0)
   await expect(page.getByText('只有簽核者可以查看')).toBeVisible()
+})
+
+test('規範文件：匯入 PDF，預審時只把相關的條文交給 AI', async ({ page }) => {
+  // 前端提供下載的範例檔，就拿來當上傳的測試檔
+  const sample = fileURLToPath(new URL('../../apps/web/public/samples/travel-policy.pdf', import.meta.url))
+  // 所有測試共用同一個後端，代碼每次都不一樣，重跑時才不會撞名
+  const code = `t${Date.now() % 100000}`
+
+  await page.goto('/')
+  await switchUser(page, 'manager')
+  await page.getByRole('link', { name: '規範文件' }).click()
+
+  // 第一步：選申請類型與檔案 → 解析
+  await page.getByLabel('用於哪一種申請單').selectOption('expense')
+  await page.getByLabel('PDF 檔案').setInputFiles(sample)
+  await page.getByRole('button', { name: '解析條文' }).click()
+
+  // 第二步：確認條文。刪掉一條，示範「切錯的可以先處理掉」
+  await expect(page.getByTestId('article-row')).toHaveCount(8)
+  await expect(page.getByLabel('文件名稱')).toHaveValue('國內出差管理辦法')
+  await page.getByTestId('article-row').last().getByRole('button', { name: '刪除' }).click()
+  await page.getByLabel('代碼').fill(code)
+  await page.getByRole('button', { name: '儲存 7 條' }).click()
+
+  await expect(page.getByTestId('import-success')).toBeVisible()
+  await expect(page.getByTestId('doc-row').filter({ hasText: '國內出差管理辦法' })).toContainText('7 條')
+
+  // 申請人送出一張高鐵票報銷：規範面板多了這份文件，並標出這次交給 AI 的條文
+  await switchUser(page, 'alice')
+  await page.goto('/')
+  await page.getByRole('tab', { name: '費用報銷申請' }).click()
+  await page.getByRole('button', { name: '交通費・資料齊全' }).click()
+  await page.getByRole('button', { name: '建立草稿' }).click()
+  await page.getByRole('button', { name: '送出', exact: true }).click()
+  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(page.getByRole('heading', { name: '國內出差管理辦法' })).toBeVisible()
+  await expect(page.getByTestId('retrieval-note')).toBeVisible()
+  await expect(page.getByTestId(`policy-${code}-3`)).toHaveAttribute('data-retrieved', 'true') // 搭乘高鐵的規定
+  await expect(page.getByTestId(`policy-${code}-6`)).not.toHaveAttribute('data-retrieved', 'true') // 住宿的規定
 })

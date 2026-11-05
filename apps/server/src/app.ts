@@ -2,11 +2,12 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import {
   FORM_TYPES,
   getFormKind,
+  isApproverRole,
   isFormType,
   type FormValues,
   type RequestEvent,
 } from '@ai-approval/shared'
-import { POLICY_CHUNKS, policiesFor } from './policies'
+import { InvalidPdfError, extractPdfLines, splitIntoArticles } from './pdf-import'
 import type { CurrentUser, RequestService } from './request-service'
 
 // 擴充 Express 的 Request 型別，讓 req.user 有型別提示
@@ -25,6 +26,15 @@ const STATUS_CODE = {
   invalid_transition: 409, // 這張單目前的狀態不能做這件事（Conflict）
   unknown_form_type: 400, // 沒有這種申請單
 } as const
+
+const IMPORT_STATUS_CODE = {
+  forbidden: 403,
+  code_taken: 409, // 這個代碼已經有文件在用
+  too_many_docs: 409,
+} as const
+
+// 上傳的 PDF 大小上限：規範文件通常幾百 KB，5 MB 很寬鬆了
+const MAX_PDF_SIZE = '5mb'
 
 const FEEDBACK_STATUS_CODE = {
   not_found: 404,
@@ -78,7 +88,8 @@ export interface AppMeta {
 
 export function createApp(service: RequestService, options: { meta?: () => AppMeta } = {}) {
   const app = express()
-  app.use(express.json())
+  // 匯入規範文件時，一次會送上百條條文，預設的 100kb 不夠
+  app.use(express.json({ limit: '2mb' }))
 
   // 這兩個放在 fakeAuth 前面，不用帶身分也能呼叫
   // health：部署平台用它確認服務活著
@@ -117,7 +128,7 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
     res.json(result.request)
   })
 
-  // 有哪些申請單可以建立（之後可以依部門、角色過濾）
+  // AI 準確度統計：只有簽核者可以看
   app.get('/stats/ai', (req, res) => {
     const result = service.getAiStats(req.user!)
     if (!result.ok) {
@@ -127,6 +138,7 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
     res.json(result.stats)
   })
 
+  // 有哪些申請單可以建立（之後可以依部門、角色過濾）
   app.get('/forms', (_req, res) => {
     res.json(FORM_TYPES.map((type) => ({ type, title: getFormKind(type).def.title })))
   })
@@ -144,7 +156,56 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
   // 帶 ?formType=expense 只回傳那種申請單依據的規範；不帶就全部回傳
   app.get('/policies', (req, res) => {
     const { formType } = req.query
-    res.json(isFormType(formType) ? policiesFor(formType) : POLICY_CHUNKS)
+    res.json(service.listPolicies(isFormType(formType) ? formType : undefined))
+  })
+
+  // ===== 規範文件 =====
+  app.get('/policy-docs', (_req, res) => {
+    res.json(service.listPolicyDocs())
+  })
+
+  // 第一步：上傳 PDF，回傳切好的條文「草稿」，還不會存起來
+  // 直接收 PDF 的原始位元組（Content-Type: application/pdf），不用 multipart，也不用另外裝套件
+  app.post('/policy-docs/preview', express.raw({ type: 'application/pdf', limit: MAX_PDF_SIZE }), async (req, res) => {
+    if (!isApproverRole(req.user!.role)) {
+      res.status(403).json({ error: 'forbidden' })
+      return
+    }
+    const data = req.body
+    // 先看檔頭：PDF 一定以 %PDF- 開頭，不是的話就不用交給解析器了
+    if (!Buffer.isBuffer(data) || data.subarray(0, 5).toString('latin1') !== '%PDF-') {
+      res.status(400).json({ error: 'invalid_pdf' })
+      return
+    }
+    try {
+      const { lines, pages } = await extractPdfLines(new Uint8Array(data))
+      // 掃描檔只有圖片、沒有文字，要先 OCR，這裡不處理
+      if (lines.length === 0) {
+        res.status(422).json({ error: 'no_text' })
+        return
+      }
+      res.json({ ...splitIntoArticles(lines), pages })
+    } catch (err) {
+      if (err instanceof InvalidPdfError) {
+        res.status(400).json({ error: 'invalid_pdf' })
+        return
+      }
+      throw err
+    }
+  })
+
+  // 第二步：主管確認、修改過的條文，正式存進規範庫
+  app.post('/policy-docs', (req, res) => {
+    const result = service.importPolicyDoc(req.user!, req.body ?? {})
+    if (!result.ok) {
+      if (result.reason === 'invalid_doc') {
+        res.status(400).json({ error: 'invalid_doc', fieldErrors: result.fieldErrors })
+        return
+      }
+      res.status(IMPORT_STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.status(201).json(result.doc)
   })
 
   // 單一申請單 + 完整歷史 + 對應目前版本的 AI 預審結果
@@ -221,6 +282,15 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
       return
     }
     res.json(result.request)
+  })
+
+  // 錯誤處理：檔案太大時 express.raw 會丟出 413，轉成跟其他 API 一樣的 JSON 格式
+  app.use((err: { status?: number; type?: string }, _req: Request, res: Response, next: NextFunction) => {
+    if (err.type === 'entity.too.large') {
+      res.status(413).json({ error: 'file_too_large' })
+      return
+    }
+    next(err)
   })
 
   return app

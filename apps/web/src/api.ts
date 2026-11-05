@@ -7,6 +7,9 @@ import type {
   RequestDetail,
   AppMeta,
   AiStats,
+  ArticleDraft,
+  PolicyDocSummary,
+  PolicyImportPreview,
   RequestSummary,
   ReviewStreamEvent,
 } from './types'
@@ -63,6 +66,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  // 規範文件
+  listPolicyDocs: () => call<PolicyDocSummary[]>('/policy-docs'),
+  // 直接把檔案當 body 送出，Content-Type 設成 application/pdf；不用 FormData，後端也不用裝 multipart 套件
+  previewPolicyPdf: (file: File) =>
+    call<PolicyImportPreview>('/policy-docs/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/pdf' },
+      body: file,
+    }),
+  importPolicyDoc: (input: { formType: FormType; code: string; title: string; fileName: string | null; articles: ArticleDraft[] }) =>
+    call<PolicyDocSummary>('/policy-docs', { method: 'POST', body: JSON.stringify(input) }),
   // AI 準確度統計：只有簽核者拿得到，其他人會收到 403
   getAiStats: () => call<AiStats>('/stats/ai'),
   streamReview,

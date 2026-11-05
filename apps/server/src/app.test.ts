@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import request from 'supertest'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from './app'
@@ -124,5 +125,58 @@ describe('AI 準確度 API', () => {
     const res = await request(app).get('/stats/ai').set(asManager).expect(200)
     expect(res.body.totals.reviews).toBe(0)
     await request(app).get('/stats/ai').set(asAlice).expect(403)
+  })
+})
+
+describe('規範文件 API', () => {
+  const SAMPLE = readFileSync(new URL('../../web/public/samples/travel-policy.pdf', import.meta.url))
+  const newApp = () => createApp(createRequestService(createStore(), mockReviewer))
+
+  it('上傳 PDF → 回傳切好的條文草稿，還沒存起來', async () => {
+    const app = newApp()
+    const res = await request(app)
+      .post('/policy-docs/preview')
+      .set(asManager)
+      .set('content-type', 'application/pdf')
+      .send(SAMPLE)
+      .expect(200)
+    expect(res.body.title).toBe('國內出差管理辦法')
+    expect(res.body.articles).toHaveLength(8)
+    // 預覽不會存：規範文件清單只有內建的兩份
+    const docs = await request(app).get('/policy-docs').set(asManager).expect(200)
+    expect(docs.body).toHaveLength(2)
+  })
+
+  it('不是 PDF → 400；申請人 → 403', async () => {
+    const app = newApp()
+    const res = await request(app)
+      .post('/policy-docs/preview')
+      .set(asManager)
+      .set('content-type', 'application/pdf')
+      .send(Buffer.from('hello'))
+      .expect(400)
+    expect(res.body.error).toBe('invalid_pdf')
+    await request(app).post('/policy-docs/preview').set(asAlice).set('content-type', 'application/pdf').send(SAMPLE).expect(403)
+  })
+
+  it('確認後儲存 → 201，這種申請單的規範多了這些條文；同一個代碼再存一次 → 409', async () => {
+    const app = newApp()
+    const body = {
+      formType: 'expense',
+      code: 'trv',
+      title: '國內出差管理辦法',
+      fileName: 'travel-policy.pdf',
+      articles: [{ section: '3', text: '搭乘高鐵以標準車廂為限。' }],
+    }
+    await request(app).post('/policy-docs').set(asManager).send(body).expect(201)
+    const policies = await request(app).get('/policies?formType=expense').set(asAlice).expect(200)
+    expect(policies.body.some((p: { id: string }) => p.id === 'trv-3')).toBe(true)
+    const again = await request(app).post('/policy-docs').set(asManager).send(body).expect(409)
+    expect(again.body.error).toBe('code_taken')
+  })
+
+  it('欄位錯誤 → 400，並回傳每個欄位的錯誤', async () => {
+    const res = await request(newApp()).post('/policy-docs').set(asManager).send({ formType: 'expense', code: 'X', title: '', articles: [] }).expect(400)
+    expect(Object.keys(res.body.fieldErrors).sort()).toEqual(['articles', 'code', 'title'])
   })
 })

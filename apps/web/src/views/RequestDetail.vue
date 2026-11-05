@@ -281,6 +281,10 @@ onUnmounted(stopStream)
       </section>
     </div>
 
-    <PolicyPanel :policies="policies" :active-citation="activeCitation" />
+    <PolicyPanel
+      :policies="policies"
+      :active-citation="activeCitation"
+      :retrieved="request.review?.retrievedPolicyIds ?? null"
+    />
   </div>
 </template>

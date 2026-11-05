@@ -4,8 +4,12 @@ import { isApproverRole } from '@ai-approval/shared'
 import { meta, refreshMeta } from './meta'
 import { DEMO_USERS, currentUser, switchUser } from './session'
 
-// 只有簽核者看得到 AI 準確度：主管的評價是給改進 AI 用的，申請人看了沒有用
+// 只有簽核者看得到：AI 準確度是給改進 AI 用的，規範文件由簽核者管理
 const isApprover = computed(() => isApproverRole(currentUser.value.role))
+const APPROVER_LINKS = [
+  { to: '/insights', label: 'AI 準確度' },
+  { to: '/policy-docs', label: '規範文件' },
+]
 
 // 公開 demo 時顯示提示；拿不到就當作一般環境，不影響其他功能
 // 預審完成時，詳情頁會呼叫 refreshMeta()，AI 用量就會即時更新
@@ -17,16 +21,20 @@ onMounted(refreshMeta)
   <header
     class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-surface/90 px-4 py-3 backdrop-blur sm:px-6"
   >
-    <nav class="flex items-center gap-4">
+    <!-- 手機上放不下時換行，不會擠出畫面 -->
+    <nav class="flex flex-wrap items-center gap-x-4 gap-y-1">
       <RouterLink to="/" class="font-semibold text-ink no-underline">AI 預審簽核系統</RouterLink>
-      <RouterLink
-        v-if="isApprover"
-        to="/insights"
-        class="text-sm text-muted no-underline hover:text-accent"
-        active-class="!text-accent font-medium"
-      >
-        AI 準確度
-      </RouterLink>
+      <template v-if="isApprover">
+        <RouterLink
+          v-for="link in APPROVER_LINKS"
+          :key="link.to"
+          :to="link.to"
+          class="text-sm text-muted no-underline hover:text-accent"
+          active-class="!text-accent font-medium"
+        >
+          {{ link.label }}
+        </RouterLink>
+      </template>
     </nav>
     <label class="flex items-center gap-2 text-sm">
       <!-- 手機上空間不夠，隱藏文字；select 本身有 aria-label，螢幕閱讀器一樣讀得到 -->

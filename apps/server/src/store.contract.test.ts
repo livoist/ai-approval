@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { createSqliteStore } from './sqlite-store'
-import { createStore, type AiReview, type ApprovalRequest, type AuditEvent, type Store } from './store'
+import {
+  createStore,
+  type AiReview,
+  type ApprovalRequest,
+  type AuditEvent,
+  type Store,
+  type StoredPolicyChunk,
+  type StoredPolicyDoc,
+} from './store'
 
 // 合約測試（contract test）：同一組測試，對兩種實作各跑一次
 // 只要兩邊都通過，就代表它們「行為一致」，service 換哪一個都不會出事
@@ -69,6 +77,7 @@ for (const [name, create] of implementations) {
         summary: '發現 1 項',
         findings: [{ kind: 'missing', message: '未附斷電紀錄', citations: ['sop-4.2'], source: 'rule' }],
         reviewer: 'mock',
+        retrievedPolicyIds: ['sop-3.2', 'sop-4.2'],
         createdAt: '2026-11-04T00:00:02.000Z',
       }
       const failed: AiReview = {
@@ -113,6 +122,40 @@ for (const [name, create] of implementations) {
       store.appendFeedback(fb('f3', 'v1', 'correct'))
 
       expect(store.listFeedback('v1')).toEqual([fb('f1', 'v1', 'incorrect'), fb('f3', 'v1', 'correct')])
+    })
+
+    const doc = (id: string): StoredPolicyDoc => ({
+      id,
+      formType: 'expense',
+      title: `文件 ${id}`,
+      fileName: null,
+      createdBy: 'manager',
+      createdAt: '2026-11-05T00:00:00.000Z',
+    })
+    const chunk = (docId: string, section: string): StoredPolicyChunk => ({
+      id: `${docId}-${section}`,
+      docId,
+      section,
+      text: `第 ${section} 條`,
+    })
+
+    it('規範文件與條文：依匯入順序、條文在文件中的順序讀出', () => {
+      const store = create()
+      store.appendPolicyDoc(doc('trv'), [chunk('trv', '2'), chunk('trv', '1')])
+      store.appendPolicyDoc(doc('sec'), [chunk('sec', '1')])
+      expect(store.listPolicyDocs()).toEqual([doc('trv'), doc('sec')])
+      expect(store.listPolicyChunks().map((c) => c.id)).toEqual(['trv-2', 'trv-1', 'sec-1'])
+    })
+
+    it('寫入失敗時整份文件都不會留下，不會只存了一半', () => {
+      const store = create()
+      store.appendPolicyDoc(doc('trv'), [chunk('trv', '1')])
+      // 同一份文件裡條號重複 → 條文 id 撞在一起
+      expect(() => store.appendPolicyDoc(doc('sec'), [chunk('sec', '1'), chunk('sec', '1')])).toThrow()
+      // 代碼已經有人用了
+      expect(() => store.appendPolicyDoc(doc('trv'), [chunk('trv', '9')])).toThrow()
+      expect(store.listPolicyDocs().map((d) => d.id)).toEqual(['trv'])
+      expect(store.listPolicyChunks().map((c) => c.id)).toEqual(['trv-1'])
     })
   })
 }

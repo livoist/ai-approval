@@ -1,5 +1,5 @@
 import { getFormKind, isFormType, type Finding, type FormType } from '@ai-approval/shared'
-import { POLICY_CHUNKS } from './policies'
+import { createPolicyLibrary } from './policies'
 import type { FindingFeedback, Store } from './store'
 
 // AI 準確度統計：把主管的評價整理成「AI 哪裡做得好、哪裡常出錯」
@@ -114,7 +114,8 @@ export function computeAiStats(store: Store, options: { now?: Date; days?: numbe
     }
   }
 
-  const policyInfo = new Map(POLICY_CHUNKS.map((p) => [p.id, p]))
+  // 內建的與匯入的條文都要查得到，AI 可能引用了主管後來匯入的規範
+  const policyInfo = new Map(createPolicyLibrary(store).all().map((p) => [p.id, p]))
 
   return {
     totals,

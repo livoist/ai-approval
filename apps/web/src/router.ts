@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AiInsights from './views/AiInsights.vue'
+import PolicyDocs from './views/PolicyDocs.vue'
 import RequestDetail from './views/RequestDetail.vue'
 import RequestList from './views/RequestList.vue'
 
@@ -9,5 +10,6 @@ export const router = createRouter({
     { path: '/', component: RequestList },
     { path: '/requests/:id', component: RequestDetail, props: true },
     { path: '/insights', component: AiInsights },
+    { path: '/policy-docs', component: PolicyDocs },
   ],
 })

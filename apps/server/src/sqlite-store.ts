@@ -1,5 +1,13 @@
 import Database from 'better-sqlite3'
-import type { AiReview, ApprovalRequest, AuditEvent, FindingFeedback, Store } from './store'
+import type {
+  AiReview,
+  ApprovalRequest,
+  AuditEvent,
+  FindingFeedback,
+  Store,
+  StoredPolicyChunk,
+  StoredPolicyDoc,
+} from './store'
 
 // 資料表結構
 // - 欄位用 snake_case（資料庫慣例），TypeScript 物件用 camelCase，中間由 toXxx() 轉換
@@ -78,7 +86,31 @@ const MIGRATION_2 = `
   ALTER TABLE requests ADD COLUMN fields_json TEXT NOT NULL DEFAULT '{}';
 `
 
-const MIGRATIONS = [MIGRATION_1, MIGRATION_2]
+// 第 3 步：主管匯入的規範文件，以及每次預審交給 AI 的條文
+// 規範文件不提供修改與刪除：過去的預審引用過這些條文，刪掉就查不到 AI 當時依據的是什麼
+const MIGRATION_3 = `
+  CREATE TABLE IF NOT EXISTS policy_docs (
+    id         TEXT PRIMARY KEY,
+    form_type  TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    file_name  TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS policy_chunks (
+    id       TEXT PRIMARY KEY,
+    doc_id   TEXT NOT NULL REFERENCES policy_docs(id),
+    section  TEXT NOT NULL,
+    text     TEXT NOT NULL,
+    position INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_chunks_doc ON policy_chunks(doc_id);
+
+  ALTER TABLE ai_reviews ADD COLUMN retrieved_json TEXT;
+`
+
+const MIGRATIONS = [MIGRATION_1, MIGRATION_2, MIGRATION_3]
 
 function migrate(db: Database.Database) {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number }
@@ -128,7 +160,24 @@ interface ReviewRow {
   findings_json: string | null
   error: string | null
   reviewer: string
+  retrieved_json: string | null
   created_at: string
+}
+
+interface PolicyDocRow {
+  id: string
+  form_type: string
+  title: string
+  file_name: string | null
+  created_by: string
+  created_at: string
+}
+
+interface PolicyChunkRow {
+  id: string
+  doc_id: string
+  section: string
+  text: string
 }
 
 interface FeedbackRow {
@@ -184,6 +233,7 @@ const toReview = (r: ReviewRow): AiReview => ({
   findings: r.findings_json ? JSON.parse(r.findings_json) : undefined,
   error: r.error ?? undefined,
   reviewer: r.reviewer,
+  ...(r.retrieved_json ? { retrievedPolicyIds: JSON.parse(r.retrieved_json) } : {}),
   createdAt: r.created_at,
 })
 
@@ -215,8 +265,8 @@ export function createSqliteStore(path: string): Store {
     `),
     listAudit: db.prepare('SELECT * FROM audit_events WHERE request_id = ? ORDER BY rowid'),
     appendReview: db.prepare(`
-      INSERT INTO ai_reviews (id, request_id, request_version, status, risk_level, summary, findings_json, error, reviewer, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ai_reviews (id, request_id, request_version, status, risk_level, summary, findings_json, error, reviewer, retrieved_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     listReviews: db.prepare('SELECT * FROM ai_reviews WHERE request_id = ? ORDER BY rowid'),
     appendFeedback: db.prepare(`
@@ -224,7 +274,23 @@ export function createSqliteStore(path: string): Store {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `),
     listFeedback: db.prepare('SELECT * FROM finding_feedback WHERE review_id = ? ORDER BY rowid'),
+    appendPolicyDoc: db.prepare(`
+      INSERT INTO policy_docs (id, form_type, title, file_name, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)
+    `),
+    appendPolicyChunk: db.prepare(`
+      INSERT INTO policy_chunks (id, doc_id, section, text, position) VALUES (?, ?, ?, ?, ?)
+    `),
+    listPolicyDocs: db.prepare('SELECT * FROM policy_docs ORDER BY rowid'),
+    listPolicyChunks: db.prepare(`
+      SELECT c.* FROM policy_chunks c JOIN policy_docs d ON d.id = c.doc_id ORDER BY d.rowid, c.position
+    `),
   }
+
+  // db.transaction 包起來的函式：裡面任何一行出錯，前面寫進去的也會一起取消
+  const appendPolicyDoc = db.transaction((doc: StoredPolicyDoc, chunks: StoredPolicyChunk[]) => {
+    stmt.appendPolicyDoc.run(doc.id, doc.formType, doc.title, doc.fileName, doc.createdBy, doc.createdAt)
+    chunks.forEach((c, i) => stmt.appendPolicyChunk.run(c.id, c.docId, c.section, c.text, i))
+  })
 
   return {
     getRequest(id) {
@@ -264,6 +330,7 @@ export function createSqliteStore(path: string): Store {
         r.findings ? JSON.stringify(r.findings) : null,
         r.error ?? null,
         r.reviewer,
+        r.retrievedPolicyIds ? JSON.stringify(r.retrievedPolicyIds) : null,
         r.createdAt,
       )
     },
@@ -283,6 +350,25 @@ export function createSqliteStore(path: string): Store {
     },
     listFeedback(reviewId) {
       return (stmt.listFeedback.all(reviewId) as FeedbackRow[]).map(toFeedback)
+    },
+    appendPolicyDoc,
+    listPolicyDocs() {
+      return (stmt.listPolicyDocs.all() as PolicyDocRow[]).map((r) => ({
+        id: r.id,
+        formType: r.form_type,
+        title: r.title,
+        fileName: r.file_name,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+      }))
+    },
+    listPolicyChunks() {
+      return (stmt.listPolicyChunks.all() as PolicyChunkRow[]).map((r) => ({
+        id: r.id,
+        docId: r.doc_id,
+        section: r.section,
+        text: r.text,
+      }))
     },
   }
 }

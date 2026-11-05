@@ -17,7 +17,8 @@ import {
   type RequestStatus,
 } from '@ai-approval/shared'
 import { computeAiStats } from './ai-stats'
-import { policiesFor } from './policies'
+import { CORE_POLICIES, createPolicyLibrary, type PolicyImportInput } from './policies'
+import { selectRelevant } from './retrieval'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
 import type { ApprovalRequest, FindingFeedback, Store } from './store'
 
@@ -37,6 +38,10 @@ type Listener = (event: ReviewStreamEvent) => void
 
 // AI 審查員在系統裡的身分：只有它能送出 AI_REVIEW_DONE / AI_REVIEW_FAILED
 const AI_ACTOR: CurrentUser = { id: 'ai-reviewer', role: 'system' }
+
+// 每次預審最多交給 AI 幾條規範（另外加上規則已經引用的）
+// 內建的規範都在這個數量以內，所以全部會給；主管匯入更多文件之後，才開始依相關程度挑選
+export const POLICY_TOP_K = 10
 
 // AI 超過這個時間還沒回應就放棄，走預審失敗的流程，不讓申請單卡在 reviewing
 const REVIEW_TIMEOUT_MS = 60_000
@@ -61,6 +66,7 @@ export interface ServiceOptions {
 // reviewer 是選填的：沒給的話就不會自動預審（舊的測試可以照常手動推進狀態）
 export function createRequestService(store: Store, reviewer?: Reviewer, options: ServiceOptions = {}) {
   const now = options.now ?? (() => new Date())
+  const policyLibrary = createPolicyLibrary(store)
 
   // 正在跑的預審：讓測試可以「等它跑完」再檢查結果
   const pendingReviews = new Map<string, Promise<void>>()
@@ -249,11 +255,22 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     // 第一步：規則引擎。純程式判斷、瞬間完成，所以這些意見會最先出現在畫面上
     const formType = request.formType as FormType
     const kind = getFormKind(formType)
-    const policies = policiesFor(formType)
     const narrative = request.fields[kind.narrativeField]
+    const details = describeValues(kind.def, request.fields)
 
     const ruleFindings = runRules(formType, request.fields, now())
     ruleFindings.forEach(emit)
+
+    // 檢索：用申請單的內容當查詢，從規範庫挑出最相關的條文，只把這些交給 AI
+    // 查詢只用標題與填寫的文字，不用欄位名稱：每張報銷單都有「發票號碼」這個欄位，
+    // 拿欄位名稱去查，每次都會查到發票的條文，真正相關的反而被擠掉
+    const query = [request.title, ...Object.values(request.fields).filter((v) => typeof v === 'string')].join('\n')
+    const policies = selectRelevant(policyLibrary.forFormType(formType), query, {
+      topK: POLICY_TOP_K,
+      // 一定要給的：核心條文，以及規則已經引用的條文（AI 才知道規則查到的問題依據是什麼）
+      mustInclude: [...CORE_POLICIES[formType], ...ruleFindings.flatMap((f) => f.citations)],
+    })
+    const retrievedPolicyIds = policies.map((p) => p.id)
 
     let outcome: 'done' | 'failed'
     try {
@@ -264,7 +281,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
           formTitle: kind.def.title,
           title: request.title,
           values: request.fields,
-          details: describeValues(kind.def, request.fields),
+          details,
           narrative: typeof narrative === 'string' ? narrative : '',
           ruleFindings,
         },
@@ -287,6 +304,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
         summary: ai.summary,
         findings: [...ruleFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
         reviewer: raw.usedReviewer ?? reviewer.name,
+        retrievedPolicyIds,
         createdAt: now().toISOString(),
       })
       outcome = 'done'
@@ -299,6 +317,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
         status: 'failed',
         error: isTimeout ? 'AI 回應逾時' : err instanceof Error ? err.message : String(err),
         reviewer: reviewer.name,
+        retrievedPolicyIds,
         createdAt: now().toISOString(),
       })
       outcome = 'failed'
@@ -397,9 +416,19 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     return { ok: true as const, stats: computeAiStats(store, { now: now() }) }
   }
 
+  // ===== 規範庫 =====
+  function importPolicyDoc(user: CurrentUser, input: PolicyImportInput) {
+    // 規範由簽核者管理；申請人可以看，但不能改公司的規定
+    if (!isApproverRole(user.role)) return { ok: false as const, reason: 'forbidden' as const }
+    return policyLibrary.importDoc(input, user.id, now())
+  }
+
   return {
     createRequest,
     getAiStats,
+    importPolicyDoc,
+    listPolicyDocs: () => policyLibrary.listDocs(),
+    listPolicies: (type?: FormType) => (type ? policyLibrary.forFormType(type) : policyLibrary.all()),
     listSummaries,
     updateRequest,
     sendEvent,

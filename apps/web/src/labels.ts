@@ -31,4 +31,10 @@ export const ERROR_LABEL: Record<string, string> = {
   not_found: '找不到這張申請單',
   note_required: '標記為有誤時，請說明錯在哪裡',
   invalid_fields: '有欄位填寫不正確，請檢查標示紅字的地方',
+  invalid_pdf: '這個檔案不是有效的 PDF',
+  no_text: '這份 PDF 裡沒有可以讀取的文字，可能是掃描檔，請先轉成文字型 PDF',
+  file_too_large: '檔案太大了，請上傳 5 MB 以內的 PDF',
+  invalid_doc: '有欄位填寫不正確，請檢查標示紅字的地方',
+  code_taken: '這個代碼已經有文件在用了，請換一個',
+  too_many_docs: '規範文件已達上限，無法再匯入',
 }
