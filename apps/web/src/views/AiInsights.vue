@@ -83,7 +83,8 @@ function stackSeries(rows: VerdictCounts[], horizontal: boolean) {
       borderWidth: 2,
       borderRadius: i === SERIES.length - 1 ? (horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]) : 0,
     },
-    emphasis: { focus: 'series' as const },
+    // 滑過時不要讓其他段變淡：tooltip 列的是同一天的三段，三段都要看得清楚
+    emphasis: { disabled: true },
   }))
 }
 
@@ -92,7 +93,8 @@ const baseOption = {
   legend: { top: 0, left: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 10, textStyle: { color: INK.muted } },
   tooltip: {
     trigger: 'axis' as const,
-    axisPointer: { type: 'shadow' as const },
+    // 滑過時整欄打上很淡的藍色底，不能用灰色：會跟「未評價」的灰色混在一起
+    axisPointer: { type: 'shadow' as const, shadowStyle: { color: 'rgba(37, 99, 235, 0.06)' } },
     borderColor: '#e2e5ea',
     textStyle: { color: '#1d2330', fontSize: 12 },
   },
