@@ -44,6 +44,14 @@ describe('評估集', () => {
     expect(report.guidelines.map((g) => g.policyId)).toEqual(['sop-3.2'])
   })
 
+  it('每完成一題回報一次進度，兩輪共 20 題', async () => {
+    const seen: string[] = []
+    await runEval({ reviewer: mockReviewer, policiesFor, guidelines: [], now: NOW, onProgress: (d, t) => seen.push(`${d}/${t}`) })
+    expect(seen[0]).toBe('0/20')
+    expect(seen.at(-1)).toBe('20/20')
+    expect(seen).toHaveLength(21)
+  })
+
   it('停用的準則不會套用', async () => {
     const report = await runEval({ reviewer: mockReviewer, policiesFor, guidelines: [guideline('sop-3.2', true)], now: NOW })
     expect(report.guidelines).toEqual([])
@@ -115,8 +123,14 @@ describe('審查準則接回預審', () => {
     expect(await service.startEval(alice)).toEqual({ ok: false, reason: 'forbidden' })
     service.createGuideline(manager, { policyId: 'sop-3.2', text: '有現象與時間就夠了' })
 
-    const result = await service.startEval(manager)
+    expect(service.getEvalProgress()).toEqual({ running: false })
+    const pending = service.startEval(manager)
+    // 跑的途中查得到進度，同時再按一次會被擋下
+    expect(service.getEvalProgress()).toMatchObject({ running: true, startedBy: 'manager' })
+    expect(await service.startEval(manager)).toEqual({ ok: false, reason: 'eval_running' })
+    const result = await pending
     expect(result.ok).toBe(true)
+    expect(service.getEvalProgress()).toEqual({ running: false })
     const [run] = service.listEvalRuns()
     expect(run).toMatchObject({ reviewer: 'mock', createdBy: 'manager', baseline: { passed: 6 }, withGuidelines: { passed: 8 } })
     expect(service.getEvalRun(run!.id)!.report.cases).toHaveLength(10)

@@ -186,6 +186,11 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
     res.json(service.listEvalRuns())
   })
 
+  // 進度要寫在 /evals/:id 前面：不然「progress」會被當成某一次評估的 id
+  app.get('/evals/progress', requireApprover, (_req, res) => {
+    res.json(service.getEvalProgress())
+  })
+
   // 中間夾了 requireApprover，Express 的型別推不出 :id，所以明確標註
   app.get('/evals/:id', requireApprover, (req: Request<{ id: string }>, res: Response) => {
     const run = service.getEvalRun(req.params.id)

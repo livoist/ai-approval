@@ -182,3 +182,8 @@ export interface EvalRun {
 
 // 歷史清單用的摘要：不含每一題的細節
 export type EvalRunSummary = Omit<EvalRun, 'report'> & { baseline: EvalSummary; withGuidelines: EvalSummary }
+
+// 正在執行的評估進度（只有在跑的時候才有數字）
+export type EvalProgress =
+  | { running: false }
+  | { running: true; done: number; total: number; startedAt: string; startedBy: string }

@@ -257,13 +257,24 @@ export async function runEval(options: {
   guidelines: readonly Guideline[]
   now: Date
   cases?: EvalCase[]
+  // 每完成一題就回報一次：用 Claude 時一次評估要一分鐘左右，畫面上要看得到進度
+  onProgress?: (done: number, total: number) => void
 }): Promise<EvalReport> {
   const cases = options.cases ?? evalCases(options.now)
   const active = options.guidelines.filter((g) => !g.retiredAt)
 
+  // 兩輪各跑一次全部的題目
+  const total = cases.length * 2
+  let done = 0
+  options.onProgress?.(0, total)
+
   // 同一組題目跑兩次，唯一的差別是有沒有審查準則：差多少，就是準則帶來的效果
   const variant = async (guidelines: readonly Guideline[]): Promise<EvalVariant> => {
-    const results = await mapLimit(cases, CONCURRENCY, (c) => runCase(c, { ...options, guidelines }))
+    const results = await mapLimit(cases, CONCURRENCY, async (c) => {
+      const result = await runCase(c, { ...options, guidelines })
+      options.onProgress?.(++done, total)
+      return result
+    })
     return { results, summary: summarize(cases, results) }
   }
   const baseline = await variant([])

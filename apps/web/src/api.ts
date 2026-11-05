@@ -8,6 +8,7 @@ import type {
   AppMeta,
   AiStats,
   ArticleDraft,
+  EvalProgress,
   EvalRun,
   EvalRunSummary,
   Guideline,
@@ -88,6 +89,7 @@ export const api = {
   listEvalRuns: () => call<EvalRunSummary[]>('/evals'),
   getEvalRun: (id: string) => call<EvalRun>(`/evals/${id}`),
   startEval: () => call<EvalRun>('/evals', { method: 'POST' }),
+  getEvalProgress: () => call<EvalProgress>('/evals/progress'),
   // AI 準確度統計：只有簽核者拿得到，其他人會收到 403
   getAiStats: () => call<AiStats>('/stats/ai'),
   streamReview,

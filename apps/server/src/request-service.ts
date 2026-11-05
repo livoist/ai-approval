@@ -448,6 +448,8 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
   // ===== 評估集 =====
   // 同一時間只跑一次：用 Claude 時一次評估要呼叫 API 二十次，重複按會白花錢
   let evalRunning = false
+  // 進度只存在記憶體：只有「正在跑」的那一次需要，跑完就清掉
+  let evalProgress: { done: number; total: number; startedAt: string; startedBy: string } | null = null
 
   async function startEval(
     user: CurrentUser,
@@ -457,12 +459,16 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     if (evalRunning) return { ok: false, reason: 'eval_running' }
 
     evalRunning = true
+    evalProgress = { done: 0, total: 0, startedAt: now().toISOString(), startedBy: user.id }
     try {
       const report = await runEval({
         reviewer,
         policiesFor: (type) => policyLibrary.forFormType(type),
         guidelines: store.listGuidelines(),
         now: now(),
+        onProgress: (done, total) => {
+          if (evalProgress) Object.assign(evalProgress, { done, total })
+        },
       })
       const run: EvalRun = {
         id: randomUUID(),
@@ -476,6 +482,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
       return { ok: true, run }
     } finally {
       evalRunning = false
+      evalProgress = null
     }
   }
 
@@ -494,6 +501,8 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     retireGuideline,
     listGuidelines: () => store.listGuidelines(),
     startEval,
+    // 目前這一次評估的進度；沒有在跑就是 running: false
+    getEvalProgress: () => (evalProgress ? { running: true as const, ...evalProgress } : { running: false as const }),
     listEvalRuns,
     getEvalRun: (id: string) => store.listEvalRuns().find((r) => r.id === id),
     importPolicyDoc,

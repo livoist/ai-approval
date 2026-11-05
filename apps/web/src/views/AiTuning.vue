@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getFormKind, isApproverRole } from '@ai-approval/shared'
 import { ApiError, api } from '../api'
 import { ERROR_LABEL } from '../labels'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
-import type { EvalCaseResult, EvalRun, EvalRunSummary, EvalSummary, Guideline } from '../types'
+import type { EvalCaseResult, EvalProgress, EvalRun, EvalRunSummary, EvalSummary, Guideline } from '../types'
 
 // AI 調校：把主管的回饋接回 AI，並用評估集驗證有沒有變好
 //
@@ -37,10 +37,18 @@ async function load() {
   }
 }
 
-onMounted(() => {
-  if (isApprover.value) load()
-  else loading.value = false
+onMounted(async () => {
+  if (!isApprover.value) {
+    loading.value = false
+    return
+  }
+  await load()
+  // 進來時已經有一次評估在跑（例如剛剛按了之後離開又回來、或別的主管按的）：接著顯示進度
+  const p = await api.getEvalProgress().catch(() => null)
+  if (p?.running) followProgress(p)
 })
+
+onBeforeUnmount(stopPolling)
 
 // ===== 準則 =====
 const retiring = ref<string | null>(null)
@@ -60,20 +68,72 @@ async function retire(g: Guideline) {
 }
 
 // ===== 評估 =====
+// 執行評估的 API 要等全部跑完才回應（用 Claude 約一分鐘），等待的這段時間：
+// - 每半秒問一次後端「跑到第幾題了」，畫出真實的進度，而不是一個不知道要轉多久的圈圈
+// - 舊的結果先淡化，看得出「正在更新」，但版面不會跳掉
 const running = ref(false)
+const progress = ref<Extract<EvalProgress, { running: true }> | null>(null)
+const clock = ref(Date.now()) // 讓「已經過幾秒」每次輪詢都更新
+let timer: ReturnType<typeof setInterval> | null = null
+
+function stopPolling() {
+  if (timer) clearInterval(timer)
+  timer = null
+}
+
+function startPolling(onFinished?: () => void) {
+  stopPolling()
+  timer = setInterval(async () => {
+    clock.value = Date.now()
+    const p = await api.getEvalProgress().catch(() => null)
+    if (p?.running) progress.value = p
+    else if (p && onFinished) {
+      stopPolling()
+      onFinished()
+    }
+  }, 500)
+}
+
+// 跟著別人（或剛剛的自己）正在跑的評估：跑完後重新載入結果
+function followProgress(p: Extract<EvalProgress, { running: true }>) {
+  running.value = true
+  progress.value = p
+  startPolling(async () => {
+    running.value = false
+    progress.value = null
+    await load()
+  })
+}
 
 async function startEval() {
   running.value = true
+  progress.value = null
   error.value = null
+  startPolling()
   try {
     selected.value = await api.startEval()
     runs.value = await api.listEvalRuns()
   } catch (e) {
     error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
   } finally {
+    stopPolling()
     running.value = false
+    progress.value = null
   }
 }
+
+const progressView = computed(() => {
+  const p = progress.value
+  if (!p || p.total === 0) return { percent: 0, phase: '準備中…', detail: '正在準備題目' }
+  const half = p.total / 2
+  const seconds = Math.max(0, Math.round((clock.value - Date.parse(p.startedAt)) / 1000))
+  return {
+    percent: Math.round((p.done / p.total) * 100),
+    // 前半是「不套用準則」、後半是「套用準則」
+    phase: p.done < half ? `第 1 輪：不套用準則（${p.done} / ${half}）` : `第 2 輪：套用準則（${p.done - half} / ${half}）`,
+    detail: `已完成 ${p.done} / ${p.total} 次審查 · 已經過 ${seconds} 秒 · ${p.startedBy} 執行`,
+  }
+})
 
 async function openRun(id: string) {
   selected.value = await api.getEvalRun(id)
@@ -216,11 +276,32 @@ const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type)
           </button>
         </div>
 
-        <div v-if="!selected" class="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted">
+        <!-- 執行中：真實的進度（第幾輪、第幾題、經過幾秒） -->
+        <div v-if="running" class="mb-4 rounded-lg bg-accent-soft px-4 py-3" role="status" aria-live="polite" data-testid="eval-progress">
+          <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2 text-sm">
+            <span class="font-medium text-accent">{{ progressView.phase }}</span>
+            <span class="text-xs tabular-nums text-muted">{{ progressView.percent }}%</span>
+          </div>
+          <div
+            class="h-2 overflow-hidden rounded-full bg-surface"
+            role="progressbar"
+            aria-label="評估進度"
+            :aria-valuenow="progressView.percent"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <div class="h-full rounded-full bg-accent transition-[width] duration-500" :style="{ width: `${progressView.percent}%` }" />
+          </div>
+          <p class="mt-2 text-xs text-muted">{{ progressView.detail }}</p>
+          <p class="text-xs text-muted">可以先離開這一頁，評估會在後端跑完，回來就看得到結果。</p>
+        </div>
+
+        <div v-if="!selected && !running" class="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted">
           還沒有評估紀錄，按「執行評估」跑第一次。
         </div>
 
-        <template v-else>
+        <!-- 舊的結果在執行中先淡化：看得出正在更新，版面也不會跳 -->
+        <div v-else-if="selected" :class="{ 'pointer-events-none opacity-40 transition-opacity': running }" :aria-busy="running">
           <p class="mb-3 text-xs text-muted">
             {{ formatDateTime(selected.createdAt) }} · {{ selected.createdBy }} 執行 · 審查員 {{ selected.reviewer }} ·
             套用 {{ selected.report.guidelines.length }} 條準則
@@ -276,7 +357,7 @@ const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type)
               </tbody>
             </table>
           </div>
-        </template>
+        </div>
 
         <!-- 歷次評估 -->
         <details v-if="runs.length > 1" class="mt-4 text-sm">
