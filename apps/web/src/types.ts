@@ -64,6 +64,12 @@ export type ReviewStreamEvent =
   | { type: 'finding'; version: number; finding: ReviewFinding }
   | { type: 'status'; status: RequestStatus }
 
+// 系統資訊：公開 demo 時用來顯示提示與 AI 額度
+export interface AppMeta {
+  demo: boolean
+  ai: { reviewer: string; used: number; limit: number } | null
+}
+
 export interface PolicyChunk {
   id: string
   docId: string

@@ -135,6 +135,16 @@ pnpm e2e                 # 端對端測試：會自動啟動一組獨立的前�
 
 E2E 用真的瀏覽器跑完整流程：填單驗證、AI 預審、點引用高亮、主管評價、要求補件、修改重送、核准、權限、清單篩選，以及第二種申請單。CI 在每次 push 時跑以上全部。
 
+## 部署
+
+部署在 [Render](https://render.com)，設定都寫在 [`render.yaml`](render.yaml)：
+
+- **前後端是同一個服務**：Express 的 API 掛在 `/api`，同時提供打包好的 Vue 頁面。只有一個網址，沒有跨網域問題，SSE 串流也不會被 serverless 平台切斷
+- **示範資料**：`DEMO=true` 時，啟動後自動放入各種狀態的申請單；資料只存在記憶體，服務休眠後喚醒就是一組全新的資料
+- **AI 使用上限**：`AI_DAILY_LIMIT` 控制每天最多呼叫 Claude 幾次，用完、或 Claude 出錯時，自動改用模擬審查員，demo 不會壞掉
+
+在 Render 選 **New → Blueprint** 連上這個 repo，再到服務的 Environment 頁面填入 `ANTHROPIC_API_KEY` 即可。
+
 ## 設計決策
 
 ### 簽核狀態用轉換表管理，前後端共用

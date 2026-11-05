@@ -27,8 +27,7 @@ export default defineConfig({
     {
       command: 'pnpm --filter @ai-approval/server exec tsx src/index.ts',
       cwd: '..',
-      // 後端一律回 401（沒帶身分），對 Playwright 來說也代表「已經啟動了」
-      url: `http://localhost:${API_PORT}/requests`,
+      url: `http://localhost:${API_PORT}/api/health`,
       reuseExistingServer: false,
       env: {
         PORT: String(API_PORT),

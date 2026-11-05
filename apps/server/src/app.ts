@@ -70,9 +70,25 @@ function fakeAuth(req: Request, res: Response, next: NextFunction) {
   next()
 }
 
-export function createApp(service: RequestService) {
+// 不需要登入就能看的系統資訊：前端用來決定要不要顯示「示範環境」提示
+export interface AppMeta {
+  demo: boolean
+  ai: { reviewer: string; used: number; limit: number } | null
+}
+
+export function createApp(service: RequestService, options: { meta?: () => AppMeta } = {}) {
   const app = express()
   app.use(express.json())
+
+  // 這兩個放在 fakeAuth 前面，不用帶身分也能呼叫
+  // health：部署平台用它確認服務活著
+  app.get('/health', (_req, res) => {
+    res.json({ ok: true })
+  })
+  app.get('/meta', (_req, res) => {
+    res.json(options.meta?.() ?? { demo: false, ai: null })
+  })
+
   app.use(fakeAuth)
 
   // 列出所有申請單

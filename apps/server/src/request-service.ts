@@ -274,7 +274,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
         riskLevel: maxRisk(riskFromRules(ruleFindings), ai.riskLevel),
         summary: ai.summary,
         findings: [...ruleFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
-        reviewer: reviewer.name,
+        reviewer: raw.usedReviewer ?? reviewer.name,
         createdAt: new Date().toISOString(),
       })
       outcome = 'done'

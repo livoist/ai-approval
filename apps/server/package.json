@@ -8,7 +8,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "db:reset": "rm -f data/app.db data/app.db-wal data/app.db-shm"
+    "db:reset": "rm -f data/app.db data/app.db-wal data/app.db-shm",
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "@ai-approval/shared": "workspace:*",

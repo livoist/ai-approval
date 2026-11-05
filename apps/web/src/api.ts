@@ -5,6 +5,7 @@ import type {
   FindingFeedback,
   PolicyChunk,
   RequestDetail,
+  AppMeta,
   RequestSummary,
   ReviewStreamEvent,
 } from './types'
@@ -37,6 +38,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getMeta: () => call<AppMeta>('/meta'),
   listRequests: () => call<RequestSummary[]>('/requests'),
   getRequest: (id: string) => call<RequestDetail>(`/requests/${id}`),
   createRequest: (input: { formType: FormType; title: string; fields: FormValues }) =>

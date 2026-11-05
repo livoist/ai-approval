@@ -9,6 +9,8 @@ export interface ReviewOutput {
   riskLevel: 'low' | 'medium' | 'high'
   summary: string
   findings: AiFinding[]
+  // 實際是誰審的：有使用上限的審查員改用備援時，會在這裡註明原因
+  usedReviewer?: string
 }
 
 export interface ReviewInput {
