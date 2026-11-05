@@ -95,3 +95,52 @@ describe('清單摘要', () => {
     expect(byId[reviewed.id]).toBe('low')
   })
 })
+
+describe('第二層簽核', () => {
+  const director = { id: 'director', role: 'plant_manager' as const }
+
+  it('金額超過門檻：主管核准 → 待廠長核准 → 廠長核准', async () => {
+    const r = mustCreate(service, alice, { ...COMPLETE_EXPENSE, amount: 45_000 }, '大額報銷', 'expense')
+    await submitAndReview(r.id)
+
+    expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({
+      ok: true,
+      request: { status: 'pending_final_approval' },
+    })
+    // 主管不能自己把第二關也簽掉
+    expect(service.sendEvent(r.id, 'APPROVE', manager)).toEqual({ ok: false, reason: 'forbidden' })
+    expect(service.sendEvent(r.id, 'APPROVE', director)).toMatchObject({ ok: true, request: { status: 'approved' } })
+
+    expect(service.getHistory(r.id).map((e) => `${e.actor.id}:${e.event}`).slice(-2)).toEqual([
+      'manager:APPROVE',
+      'director:APPROVE',
+    ])
+  })
+
+  it('金額未超過門檻：主管核准就結案，廠長看不到這張單', async () => {
+    const r = mustCreate(service, alice, COMPLETE_EXPENSE, '小額報銷', 'expense')
+    await submitAndReview(r.id)
+    expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({ request: { status: 'approved' } })
+  })
+
+  it('補件時把金額降到門檻以下，重送後就不用廠長', async () => {
+    const r = mustCreate(service, alice, { ...COMPLETE_EXPENSE, amount: 45_000 }, '大額報銷', 'expense')
+    await submitAndReview(r.id)
+    service.sendEvent(r.id, 'APPROVE', manager)
+    service.sendEvent(r.id, 'REQUEST_INFO', director)
+
+    service.updateRequest(r.id, alice, { title: '拆單後', fields: { ...COMPLETE_EXPENSE, amount: 20_000 } })
+    service.sendEvent(r.id, 'RESUBMIT', alice)
+    await service.waitForReview(r.id)
+    expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({ request: { status: 'approved' } })
+  })
+
+  it('廠長也可以評價 AI 的意見', async () => {
+    const r = mustCreate(service, alice, { ...COMPLETE_EXPENSE, amount: 45_000, purpose: '客戶餐費報銷' }, 'x', 'expense')
+    const review = await submitAndReview(r.id)
+    const aiIndex = review.findings!.findIndex((f) => f.source === 'ai')
+    expect(
+      service.giveFeedback(r.id, review.id, aiIndex, director, { verdict: 'correct', note: '' }),
+    ).toMatchObject({ ok: true })
+  })
+})

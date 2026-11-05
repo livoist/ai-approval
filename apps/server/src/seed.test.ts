@@ -9,7 +9,7 @@ describe('示範資料', () => {
     expect(count > 0).toBe(true)
 
     const statuses = new Set(store.listRequests().map((r) => r.status))
-    for (const s of ['draft', 'pending_approval', 'needs_info', 'approved', 'rejected']) {
+    for (const s of ['draft', 'pending_approval', 'pending_final_approval', 'needs_info', 'approved', 'rejected']) {
       expect(statuses.has(s as never)).toBe(true)
     }
     const types = new Set(store.listRequests().map((r) => r.formType))

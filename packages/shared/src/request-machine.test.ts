@@ -97,3 +97,38 @@ describe('isFinal', () => {
     expect(isFinal('draft')).toBe(false)
   })
 })
+describe('第二層簽核：守衛條件', () => {
+  const needs = { needsPlantManager: true }
+  const noNeed = { needsPlantManager: false }
+
+  it('不需要廠長：主管核准就結案', () => {
+    expect(transition('pending_approval', 'APPROVE', 'approver', noNeed)).toEqual({ ok: true, next: 'approved' })
+  })
+
+  it('需要廠長：主管核准後送到廠長', () => {
+    expect(transition('pending_approval', 'APPROVE', 'approver', needs)).toEqual({
+      ok: true,
+      next: 'pending_final_approval',
+    })
+  })
+
+  it('廠長可以核准、退回、要求補件；主管不能代簽', () => {
+    expect(availableEvents('pending_final_approval', 'plant_manager')).toEqual(['APPROVE', 'REJECT', 'REQUEST_INFO'])
+    expect(transition('pending_final_approval', 'APPROVE', 'approver')).toEqual({ ok: false, reason: 'forbidden' })
+  })
+
+  it('廠長不能跳過主管', () => {
+    expect(transition('pending_approval', 'APPROVE', 'plant_manager', needs)).toEqual({
+      ok: false,
+      reason: 'forbidden',
+    })
+  })
+
+  it('同一個事件有兩條規則，按鈕只出現一次', () => {
+    expect(availableEvents('pending_approval', 'approver', needs)).toEqual(['APPROVE', 'REJECT', 'REQUEST_INFO'])
+  })
+
+  it('等廠長時，申請人一樣可以撤回', () => {
+    expect(transition('pending_final_approval', 'WITHDRAW', 'applicant')).toEqual({ ok: true, next: 'withdrawn' })
+  })
+})

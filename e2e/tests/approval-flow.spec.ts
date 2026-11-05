@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 // E2E 測試：用真的瀏覽器、真的前後端，照使用者的操作方式跑一遍
 // 單元測試確認「每個零件」是對的，E2E 確認「零件組起來」也是對的
 
-type UserId = 'alice' | 'bob' | 'manager'
+type UserId = 'alice' | 'bob' | 'manager' | 'director'
 
 async function switchUser(page: Page, id: UserId) {
   await page.getByLabel('目前身分').selectOption(id)
@@ -22,7 +22,7 @@ async function createAndSubmit(page: Page, sample: string) {
   await expect(status(page)).toHaveText('草稿')
 
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待簽核')
+  await expect(status(page)).toHaveText('待主管簽核')
 }
 
 test('表單驗證：必填欄位擋下送出，高壓區塊依電壓出現', async ({ page }) => {
@@ -78,7 +78,7 @@ test('完整流程：評價 AI → 要求補件 → 申請人修改重送 → �
   await page.getByRole('button', { name: '儲存' }).click()
 
   await page.getByRole('button', { name: '補件重送' }).click()
-  await expect(status(page)).toHaveText('待簽核')
+  await expect(status(page)).toHaveText('待主管簽核')
   await expect(page.getByText('第 2 版')).toBeVisible() // 補件重送後版本號 +1
 
   // 規則的兩條問題都補齊了，只剩 AI 對說明的意見
@@ -124,7 +124,7 @@ test('第二種申請單：費用報銷用自己的表單、規則與規範文�
   await page.getByRole('button', { name: '建立草稿' }).click()
   await expect(status(page)).toHaveText('草稿')
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待簽核')
+  await expect(status(page)).toHaveText('待主管簽核')
 
   // 規則：每人超過 2,000 元；AI：事由太籠統
   await expect(findings(page, 'rule')).toHaveCount(1)
@@ -155,4 +155,46 @@ test('清單：主管預設看到待我簽核，附風險等級與等待時間',
   // 篩選成費用報銷：這張設備維修單就不會出現
   await page.getByLabel('申請類型').selectOption('expense')
   await expect(page.getByRole('link', { name: /3 號產線高壓馬達維修/ })).toHaveCount(0)
+})
+
+test('多層級簽核：超過門檻時，主管核准後還要廠長核准', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'alice')
+  await page.getByRole('tab', { name: '費用報銷申請' }).click()
+  await page.getByRole('button', { name: '大額・需廠長核准' }).click()
+  // 填單時就看得到：規則提醒這張要廠長核准
+  await expect(page.getByText(/須另經廠長核准/)).toBeVisible()
+  await page.getByRole('button', { name: '建立草稿' }).click()
+
+  // 簽核路線多了「廠長核准」這一關
+  const route = page.getByRole('list', { name: '簽核路線' })
+  await expect(route.locator('[data-step="director"]')).toBeVisible()
+
+  await page.getByRole('button', { name: '送出', exact: true }).click()
+  await expect(status(page)).toHaveText('待主管簽核')
+
+  // 主管核准 → 不是結案，而是送到廠長
+  await switchUser(page, 'manager')
+  await page.getByRole('button', { name: '核准' }).click()
+  await expect(status(page)).toHaveText('待廠長核准')
+  await expect(route.locator('[data-step="director"]')).toHaveAttribute('data-state', 'current')
+  // 主管不能把第二關也簽掉
+  await expect(page.getByRole('button', { name: '核准' })).toHaveCount(0)
+
+  // 廠長的「待我簽核」裡有這張單
+  await switchUser(page, 'director')
+  await page.goto('/')
+  await page.getByRole('link', { name: /年度客戶答謝餐會/ }).first().click()
+  await page.getByRole('button', { name: '核准' }).click()
+  await expect(status(page)).toHaveText('已核准')
+  await expect(route.locator('[data-step="done"]')).toHaveAttribute('data-state', 'done')
+})
+
+test('多層級簽核：未超過門檻時，簽核路線沒有廠長', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'alice')
+  await page.getByRole('button', { name: '低壓・說明簡略' }).click()
+  await page.getByRole('button', { name: '建立草稿' }).click()
+  await expect(status(page)).toHaveText('草稿')
+  await expect(page.getByRole('list', { name: '簽核路線' }).locator('[data-step="director"]')).toHaveCount(0)
 })

@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import {
   describeValues,
   getFormKind,
+  isApproverRole,
   isFormType,
+  needsPlantManager,
   normalizeValues,
   runRules,
   transition,
@@ -192,7 +194,9 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     }
 
     // 規則全部交給 shared 的狀態機判斷，這裡不重寫任何 if-else
-    const result = transition(request.status, event, user.role)
+    // 這張單要不要送廠長，由規則引擎依內容判斷；狀態機用它選出正確的下一步
+    const ctx = { needsPlantManager: needsPlantManager(request.formType as FormType, request.fields) }
+    const result = transition(request.status, event, user.role, ctx)
     if (!result.ok) return result
 
     const now = new Date().toISOString()
@@ -347,7 +351,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     user: CurrentUser,
     input: { verdict: FindingFeedback['verdict']; note: string },
   ): FeedbackResult {
-    if (user.role !== 'approver') return { ok: false, reason: 'forbidden' }
+    if (!isApproverRole(user.role)) return { ok: false, reason: 'forbidden' }
 
     // 這次預審必須屬於這張申請單、而且真的有這一條意見
     const review = store.listReviews(requestId).find((r) => r.id === reviewId)

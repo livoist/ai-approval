@@ -93,6 +93,7 @@ export const MAINTENANCE_RULES: Rule[] = [
   {
     id: 'plant-manager-approval',
     cites: ['sop-5.1'],
+    escalatesToPlantManager: true,
     check: (v) => {
       const cost = num(v.estimatedCost)
       return cost !== null && cost > PLANT_MANAGER_THRESHOLD

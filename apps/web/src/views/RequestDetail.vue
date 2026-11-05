@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { describeValues, getFormKind, type FormValues, type RequestEvent } from '@ai-approval/shared'
+import {
+  describeValues,
+  getFormKind,
+  isApproverRole,
+  needsPlantManager,
+  type FormValues,
+  type RequestEvent,
+} from '@ai-approval/shared'
 import { ApiError, api } from '../api'
 import ActionButtons from '../components/ActionButtons.vue'
+import ApprovalRoute from '../components/ApprovalRoute.vue'
 import PolicyPanel from '../components/PolicyPanel.vue'
 import RequestForm from '../components/RequestForm.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
@@ -97,10 +105,15 @@ async function giveFeedback(index: number, verdict: 'correct' | 'incorrect', not
   }
 }
 
+const isApprover = computed(() => isApproverRole(currentUser.value.role))
+
 const canAct = computed(
-  () =>
-    currentUser.value.role === 'approver' ||
-    request.value?.applicantId === currentUser.value.id,
+  () => isApprover.value || request.value?.applicantId === currentUser.value.id,
+)
+
+// 這張單要不要送廠長：跟後端用同一個函式算，畫出來的路線就是實際會走的路線
+const routeNeedsPlantManager = computed(() =>
+  request.value ? needsPlantManager(request.value.formType, request.value.fields) : false,
 )
 
 // 填寫內容轉成「標籤：值」的清單來顯示，跟 AI 讀到的是同一份
@@ -195,6 +208,13 @@ onUnmounted(stopStream)
         <p class="mt-1 text-sm text-muted">
           {{ formDef?.title }} · 申請人 {{ request.applicantId }} · 第 {{ request.version }} 版
         </p>
+
+        <ApprovalRoute
+          class="my-5"
+          :status="request.status"
+          :needs-plant-manager="routeNeedsPlantManager"
+          :history="request.history"
+        />
         <!-- 修改模式：同一個表單元件，帶入目前的內容 -->
         <div v-if="editing" class="mt-4">
           <RequestForm
@@ -223,6 +243,7 @@ onUnmounted(stopStream)
             :status="request.status"
             :role="currentUser.role"
             :busy="busy"
+            :needs-plant-manager="routeNeedsPlantManager"
             @send="send"
           />
           <button v-if="canEdit" class="btn" :disabled="busy" @click="editing = true">修改內容</button>
@@ -235,7 +256,7 @@ onUnmounted(stopStream)
         :reviewing="reviewing"
         :live-findings="liveFindings"
         :active-citation="activeCitation"
-        :can-give-feedback="currentUser.role === 'approver'"
+        :can-give-feedback="isApprover"
         :feedback-busy="feedbackBusy"
         @cite="activeCitation = $event"
         @feedback="giveFeedback"

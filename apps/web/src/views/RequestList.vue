@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { FORM_TYPES, getFormKind, type FormType, type FormValues } from '@ai-approval/shared'
+import {
+  FORM_TYPES,
+  PENDING_STATUS_FOR,
+  getFormKind,
+  isApproverRole,
+  type FormType,
+  type FormValues,
+} from '@ai-approval/shared'
 import { ApiError, api } from '../api'
 import RequestForm from '../components/RequestForm.vue'
 import RiskBadge from '../components/RiskBadge.vue'
@@ -19,7 +26,7 @@ const creating = ref(false)
 const error = ref<string | null>(null)
 const serverErrors = ref<Record<string, string>>({})
 
-const isApprover = computed(() => currentUser.value.role === 'approver')
+const isApprover = computed(() => isApproverRole(currentUser.value.role))
 const formTitle = (type: FormType) => getFormKind(type).def.title
 
 // ===== 新增申請 =====
@@ -64,8 +71,11 @@ const SCOPE_LABEL = computed(() => ({
   all: '全部',
 }))
 
+// 主管的「待我簽核」是待主管簽核的單；廠長的是待廠長核准的單
 const inScope = (r: RequestSummary) =>
-  isApprover.value ? r.status === 'pending_approval' : r.applicantId === currentUser.value.id
+  isApprover.value
+    ? r.status === PENDING_STATUS_FOR[currentUser.value.role]
+    : r.applicantId === currentUser.value.id
 
 // 「待我簽核」的數量顯示在分頁上，主管不用點進去就知道有幾張
 const mineCount = computed(() => requests.value.filter(inScope).length)
@@ -230,7 +240,9 @@ onMounted(load)
               <span>{{ formTitle(r.formType) }}</span>
               <span>申請人 {{ r.applicantId }}</span>
               <RiskBadge v-if="r.riskLevel" :level="r.riskLevel" />
-              <span v-if="r.status === 'pending_approval'">已等待 {{ elapsed(r.updatedAt) }}</span>
+              <span v-if="r.status === 'pending_approval' || r.status === 'pending_final_approval'">
+                已等待 {{ elapsed(r.updatedAt) }}
+              </span>
             </span>
           </RouterLink>
         </li>

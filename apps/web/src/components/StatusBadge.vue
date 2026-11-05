@@ -11,6 +11,7 @@ const STYLE: Record<RequestStatus, string> = {
   draft: 'bg-bg text-muted ring-1 ring-border',
   reviewing: 'bg-accent-soft text-accent',
   pending_approval: 'bg-accent-soft text-accent',
+  pending_final_approval: 'bg-accent-soft text-accent',
   needs_info: 'bg-warning-soft text-warning',
   approved: 'bg-ok-soft text-ok',
   rejected: 'bg-danger-soft text-danger',

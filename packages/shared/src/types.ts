@@ -4,6 +4,7 @@ export type RequestStatus =
   | 'draft' // 草稿：申請人還在填
   | 'reviewing' // AI 預審中
   | 'pending_approval' // 等待主管簽核
+  | 'pending_final_approval' // 主管已核准，等待廠長核准（金額超過門檻時才會有這一關）
   | 'needs_info' // 主管要求補件
   | 'approved' // 已核准（終點）
   | 'rejected' // 已退回（終點）
@@ -25,4 +26,5 @@ export type RequestEvent =
 // 例如修改申請內容：狀態不會變，但「誰在什麼時候改了」一定要查得到
 export type AuditAction = RequestEvent | 'CREATE' | 'UPDATE'
 // 誰在觸發事件；'system' 代表後端自己（例如 AI 預審跑完）
-export type ActorRole = 'applicant' | 'approver' | 'system'
+// plant_manager 是第二層簽核：只有規則判斷需要時，申請單才會送到他手上
+export type ActorRole = 'applicant' | 'approver' | 'plant_manager' | 'system'

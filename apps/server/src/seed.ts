@@ -10,6 +10,7 @@ import type { Store } from './store'
 const alice: CurrentUser = { id: 'alice', role: 'applicant' }
 const bob: CurrentUser = { id: 'bob', role: 'applicant' }
 const manager: CurrentUser = { id: 'manager', role: 'approver' }
+const director: CurrentUser = { id: 'director', role: 'plant_manager' }
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
@@ -19,7 +20,7 @@ interface Seed {
   title: string
   fields: FormValues
   submit: boolean // 送出並等 AI 預審跑完
-  then?: RequestEvent[] // 預審完之後，主管要做的事
+  then?: { by: CurrentUser; event: RequestEvent }[] // 預審完之後，簽核者依序要做的事
   feedback?: { index: number; verdict: 'correct' | 'incorrect'; note: string }
 }
 
@@ -70,7 +71,7 @@ const SEEDS: Seed[] = [
       invoiceNumber: 'EF-11223344',
     },
     submit: true,
-    then: ['REQUEST_INFO'], // → 待補件
+    then: [{ by: manager, event: 'REQUEST_INFO' }], // → 待補件
   },
   {
     applicant: bob,
@@ -85,7 +86,8 @@ const SEEDS: Seed[] = [
       isDown: false,
     },
     submit: true,
-    then: ['APPROVE'], // → 已核准
+    // 超過 50 萬：主管核准後送到廠長，停在「待廠長核准」
+    then: [{ by: manager, event: 'APPROVE' }],
   },
   {
     applicant: alice,
@@ -102,7 +104,7 @@ const SEEDS: Seed[] = [
     submit: true,
     // 主管覺得 AI 這條太嚴格：示範「評價 AI」的結果
     feedback: { index: 0, verdict: 'incorrect', note: '辦公室空調屬一般報修，說明程度已足夠' },
-    then: ['APPROVE'],
+    then: [{ by: manager, event: 'APPROVE' }],
   },
   {
     applicant: bob,
@@ -117,7 +119,29 @@ const SEEDS: Seed[] = [
       noInvoiceReason: '臨時雇用的搬運工無法開立收據',
     },
     submit: true,
-    then: ['REJECT'], // → 已退回（無憑證超過上限）
+    then: [{ by: manager, event: 'REJECT' }], // → 已退回（無憑證超過上限）
+  },
+  {
+    applicant: bob,
+    formType: 'expense',
+    title: '年度客戶答謝餐會',
+    fields: {
+      expenseType: '業務招待費',
+      amount: 48000,
+      expenseDate: daysAgo(7),
+      purpose: '年度主要客戶答謝餐會，邀請十二家合作廠商代表，於台北國際會議中心宴會廳舉辦',
+      guestCompany: '主要合作廠商（共 12 家）',
+      guestCount: 24,
+      staffCount: 6,
+      hasInvoice: true,
+      invoiceNumber: 'GH-55667788',
+    },
+    submit: true,
+    // 超過 3 萬：主管與廠長兩關都簽完 → 已核准
+    then: [
+      { by: manager, event: 'APPROVE' },
+      { by: director, event: 'APPROVE' },
+    ],
   },
   {
     applicant: alice,
@@ -159,8 +183,8 @@ export async function seedDemoData(store: Store): Promise<number> {
       const review = service.getLatestReview(id)
       if (review) service.giveFeedback(id, review.id, seed.feedback.index, manager, seed.feedback)
     }
-    for (const event of seed.then ?? []) {
-      const result = service.sendEvent(id, event, manager)
+    for (const { by, event } of seed.then ?? []) {
+      const result = service.sendEvent(id, event, by)
       if (!result.ok) throw new Error(`seed「${seed.title}」的 ${event} 失敗：${result.reason}`)
     }
   }

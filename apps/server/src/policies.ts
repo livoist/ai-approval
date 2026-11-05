@@ -98,6 +98,12 @@ export const POLICY_CHUNKS: readonly PolicyChunk[] = [
     section: '5.2',
     text: '業務招待費應載明招待對象之公司名稱與人數，未載明者不予核銷。',
   },
+  {
+    id: 'fin-6.1',
+    ...EXPENSE,
+    section: '6.1',
+    text: '單筆報銷金額超過新台幣 3 萬元者，經部門主管核准後，須另經廠長核准。',
+  },
 ]
 
 export function findChunk(id: string) {

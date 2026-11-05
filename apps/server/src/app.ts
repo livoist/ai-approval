@@ -55,7 +55,7 @@ function sendFormError(
 }
 
 // 前端只能「申請」或「簽核」，絕對不能宣稱自己是 system
-const CLIENT_ROLES = ['applicant', 'approver'] as const
+const CLIENT_ROLES = ['applicant', 'approver', 'plant_manager'] as const
 
 // 暫時的假登入：從 header 讀使用者身分，方便開發與 demo
 // 正式系統會改成 JWT 或 session，但後面的程式碼都不用改

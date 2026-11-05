@@ -75,9 +75,21 @@ const DEADLINE_DAYS = 60
 const NO_INVOICE_LIMIT = 1_000
 const LODGING_CAP_PER_NIGHT = 3_000
 const ENTERTAINMENT_CAP_PER_PERSON = 2_000
+const PLANT_MANAGER_THRESHOLD = 30_000
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export const EXPENSE_RULES: Rule[] = [
+  {
+    id: 'plant-manager-approval',
+    cites: ['fin-6.1'],
+    escalatesToPlantManager: true,
+    check: (v) => {
+      const amount = num(v.amount)
+      return amount !== null && amount > PLANT_MANAGER_THRESHOLD
+        ? { kind: 'notice', message: `報銷金額 ${money(amount)}，超過 3 萬元，須另經廠長核准。` }
+        : null
+    },
+  },
   {
     id: 'expense-deadline',
     cites: ['fin-2.1'],

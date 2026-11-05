@@ -155,4 +155,21 @@ export const SAMPLE_REQUESTS: SampleRequest[] = [
       invoiceNumber: 'EF-11223344',
     },
   },
+  {
+    formType: 'expense',
+    label: '大額・需廠長核准',
+    expect: '低風險，1 項（規則提醒需廠長核准）',
+    title: '年度客戶答謝餐會',
+    fields: {
+      expenseType: '業務招待費',
+      amount: 48000,
+      expenseDate: daysAgo(7),
+      purpose: '年度主要客戶答謝餐會，邀請十二家合作廠商代表，於台北國際會議中心宴會廳舉辦',
+      guestCompany: '主要合作廠商（共 12 家）',
+      guestCount: 24,
+      staffCount: 6,
+      hasInvoice: true,
+      invoiceNumber: 'GH-55667788',
+    },
+  },
 ]
