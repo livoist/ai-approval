@@ -180,3 +180,34 @@ describe('規範文件 API', () => {
     expect(Object.keys(res.body.fieldErrors).sort()).toEqual(['articles', 'code', 'title'])
   })
 })
+
+describe('AI 調校 API', () => {
+  const newApp = () => createApp(createRequestService(createStore(), mockReviewer))
+
+  it('採用準則 → 201；同一筆評價再採用 → 409；欄位錯誤 → 400', async () => {
+    const app = newApp()
+    const body = { policyId: 'sop-3.2', text: '有現象與時間就夠了', feedbackId: 'fb-1' }
+    const created = await request(app).post('/guidelines').set(asManager).send(body).expect(201)
+    expect(created.body.policyId).toBe('sop-3.2')
+    await request(app).post('/guidelines').set(asManager).send(body).expect(409)
+    const bad = await request(app).post('/guidelines').set(asManager).send({ policyId: 'nope', text: '' }).expect(400)
+    expect(Object.keys(bad.body.fieldErrors).sort()).toEqual(['policyId', 'text'])
+
+    await request(app).post(`/guidelines/${created.body.id}/retire`).set(asManager).expect(200)
+    const list = await request(app).get('/guidelines').set(asManager).expect(200)
+    expect(list.body[0].retiredBy).toBe('manager')
+  })
+
+  it('執行評估 → 201，紀錄查得到；申請人 → 403', async () => {
+    const app = newApp()
+    await request(app).post('/evals').set(asAlice).expect(403)
+    await request(app).get('/evals').set(asAlice).expect(403)
+
+    const run = await request(app).post('/evals').set(asManager).expect(201)
+    expect(run.body.report.baseline.summary.total).toBe(10)
+    const list = await request(app).get('/evals').set(asManager).expect(200)
+    expect(list.body.map((r: { id: string }) => r.id)).toEqual([run.body.id])
+    await request(app).get(`/evals/${run.body.id}`).set(asManager).expect(200)
+    await request(app).get('/evals/nope').set(asManager).expect(404)
+  })
+})

@@ -50,7 +50,8 @@ const SYSTEM_PROMPT = `你是企業內部的簽核預審助理，負責依據公
 4. 如果某項疑慮在規範中找不到依據，不要列出；沒有問題時 findings 可以是空陣列。
 5. riskLevel 只評估你自己找到的問題。
 6. 你只提供預審意見，最終決定由主管做出。
-7. 使用繁體中文。`
+7. 使用繁體中文。
+8. 「審查準則」是主管針對過去誤判寫下的補充說明，判斷對應的條文時要遵守。準則不是規範本身，citations 仍然只能填規範條文的 id。`
 
 function formatPolicies(policies: readonly PolicyChunk[]) {
   return policies.map((p) => `[${p.id}] 《${p.docTitle}》第 ${p.section} 條：${p.text}`).join('\n')
@@ -83,6 +84,10 @@ export function createClaudeReviewer(options: { apiKey: string; model: string })
                     ? '（無）'
                     : input.ruleFindings.map((f) => `- [${f.citations.join(', ')}] ${f.message}`).join('\n')
                 }`,
+                // 沒有準則就整段不放，不要多一個空標題讓模型猜
+                ...(input.guidelines.length > 0
+                  ? [`## 審查準則\n${input.guidelines.map((g) => `- [${g.policyId}] ${g.text}`).join('\n')}`]
+                  : []),
               ].join('\n\n'),
             },
           ],

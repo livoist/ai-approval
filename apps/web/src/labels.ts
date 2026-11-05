@@ -37,4 +37,8 @@ export const ERROR_LABEL: Record<string, string> = {
   invalid_doc: '有欄位填寫不正確，請檢查標示紅字的地方',
   code_taken: '這個代碼已經有文件在用了，請換一個',
   too_many_docs: '規範文件已達上限，無法再匯入',
+  invalid_guideline: '請寫下準則內容（300 字以內）',
+  already_adopted: '這筆評價已經採用為審查準則了',
+  eval_running: '已經有一次評估在執行中，請稍候',
+  no_reviewer: '伺服器沒有設定審查員，無法執行評估',
 }

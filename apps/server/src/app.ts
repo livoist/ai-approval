@@ -33,6 +33,23 @@ const IMPORT_STATUS_CODE = {
   too_many_docs: 409,
 } as const
 
+const TUNING_STATUS_CODE = {
+  forbidden: 403,
+  not_found: 404,
+  already_adopted: 409, // 這筆主管評價已經採用成準則了
+  eval_running: 409, // 已經有一次評估在跑
+  no_reviewer: 503, // 伺服器沒有設定審查員，沒辦法評估
+} as const
+
+// 只有簽核者可以看的資料：放在路由前面當作守門員
+function requireApprover(req: Request, res: Response, next: NextFunction) {
+  if (!isApproverRole(req.user!.role)) {
+    res.status(403).json({ error: 'forbidden' })
+    return
+  }
+  next()
+}
+
 // 上傳的 PDF 大小上限：規範文件通常幾百 KB，5 MB 很寬鬆了
 const MAX_PDF_SIZE = '5mb'
 
@@ -136,6 +153,57 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
       return
     }
     res.json(result.stats)
+  })
+
+  // ===== AI 調校：審查準則與評估集（只有簽核者可以用）=====
+  app.get('/guidelines', requireApprover, (_req, res) => {
+    res.json(service.listGuidelines())
+  })
+
+  app.post('/guidelines', (req, res) => {
+    const result = service.createGuideline(req.user!, req.body ?? {})
+    if (!result.ok) {
+      if (result.reason === 'invalid_guideline') {
+        res.status(400).json({ error: result.reason, fieldErrors: result.fieldErrors })
+        return
+      }
+      res.status(TUNING_STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.status(201).json(result.guideline)
+  })
+
+  app.post('/guidelines/:id/retire', (req, res) => {
+    const result = service.retireGuideline(req.user!, req.params.id)
+    if (!result.ok) {
+      res.status(TUNING_STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.json({ ok: true })
+  })
+
+  app.get('/evals', requireApprover, (_req, res) => {
+    res.json(service.listEvalRuns())
+  })
+
+  // 中間夾了 requireApprover，Express 的型別推不出 :id，所以明確標註
+  app.get('/evals/:id', requireApprover, (req: Request<{ id: string }>, res: Response) => {
+    const run = service.getEvalRun(req.params.id)
+    if (!run) {
+      res.status(404).json({ error: 'not_found' })
+      return
+    }
+    res.json(run)
+  })
+
+  // 跑一次評估：用 Claude 時要等十幾秒到一分鐘，跑完才回應
+  app.post('/evals', async (req, res) => {
+    const result = await service.startEval(req.user!)
+    if (!result.ok) {
+      res.status(TUNING_STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.status(201).json(result.run)
   })
 
   // 有哪些申請單可以建立（之後可以依部門、角色過濾）

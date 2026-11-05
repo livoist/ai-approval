@@ -110,7 +110,35 @@ const MIGRATION_3 = `
   ALTER TABLE ai_reviews ADD COLUMN retrieved_json TEXT;
 `
 
-const MIGRATIONS = [MIGRATION_1, MIGRATION_2, MIGRATION_3]
+// 第 4 步：審查準則與評估紀錄
+// 準則可以停用（UPDATE retired_at），但不能刪除；評估紀錄只能新增
+const MIGRATION_4 = `
+  CREATE TABLE IF NOT EXISTS guidelines (
+    id                 TEXT PRIMARY KEY,
+    policy_id          TEXT NOT NULL,
+    text               TEXT NOT NULL,
+    source_feedback_id TEXT REFERENCES finding_feedback(id),
+    created_by         TEXT NOT NULL,
+    created_at         TEXT NOT NULL,
+    retired_at         TEXT,
+    retired_by         TEXT
+  );
+  CREATE TRIGGER IF NOT EXISTS guidelines_no_delete BEFORE DELETE ON guidelines
+  BEGIN SELECT RAISE(ABORT, 'guidelines cannot be deleted, retire them instead'); END;
+
+  CREATE TABLE IF NOT EXISTS eval_runs (
+    id                 TEXT PRIMARY KEY,
+    reviewer           TEXT NOT NULL,
+    guideline_ids_json TEXT NOT NULL,
+    created_by         TEXT NOT NULL,
+    created_at         TEXT NOT NULL,
+    report_json        TEXT NOT NULL
+  );
+
+  ALTER TABLE ai_reviews ADD COLUMN applied_guidelines_json TEXT;
+`
+
+const MIGRATIONS = [MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4]
 
 function migrate(db: Database.Database) {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number }
@@ -161,7 +189,28 @@ interface ReviewRow {
   error: string | null
   reviewer: string
   retrieved_json: string | null
+  applied_guidelines_json: string | null
   created_at: string
+}
+
+interface GuidelineRow {
+  id: string
+  policy_id: string
+  text: string
+  source_feedback_id: string | null
+  created_by: string
+  created_at: string
+  retired_at: string | null
+  retired_by: string | null
+}
+
+interface EvalRunRow {
+  id: string
+  reviewer: string
+  guideline_ids_json: string
+  created_by: string
+  created_at: string
+  report_json: string
 }
 
 interface PolicyDocRow {
@@ -234,6 +283,7 @@ const toReview = (r: ReviewRow): AiReview => ({
   error: r.error ?? undefined,
   reviewer: r.reviewer,
   ...(r.retrieved_json ? { retrievedPolicyIds: JSON.parse(r.retrieved_json) } : {}),
+  ...(r.applied_guidelines_json ? { appliedGuidelineIds: JSON.parse(r.applied_guidelines_json) } : {}),
   createdAt: r.created_at,
 })
 
@@ -265,8 +315,8 @@ export function createSqliteStore(path: string): Store {
     `),
     listAudit: db.prepare('SELECT * FROM audit_events WHERE request_id = ? ORDER BY rowid'),
     appendReview: db.prepare(`
-      INSERT INTO ai_reviews (id, request_id, request_version, status, risk_level, summary, findings_json, error, reviewer, retrieved_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ai_reviews (id, request_id, request_version, status, risk_level, summary, findings_json, error, reviewer, retrieved_json, applied_guidelines_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     listReviews: db.prepare('SELECT * FROM ai_reviews WHERE request_id = ? ORDER BY rowid'),
     appendFeedback: db.prepare(`
@@ -284,6 +334,17 @@ export function createSqliteStore(path: string): Store {
     listPolicyChunks: db.prepare(`
       SELECT c.* FROM policy_chunks c JOIN policy_docs d ON d.id = c.doc_id ORDER BY d.rowid, c.position
     `),
+    appendGuideline: db.prepare(`
+      INSERT INTO guidelines (id, policy_id, text, source_feedback_id, created_by, created_at, retired_at, retired_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    listGuidelines: db.prepare('SELECT * FROM guidelines ORDER BY rowid'),
+    // 只停用還沒停用的：重複停用不會覆蓋第一次的時間與人
+    retireGuideline: db.prepare('UPDATE guidelines SET retired_at = ?, retired_by = ? WHERE id = ? AND retired_at IS NULL'),
+    appendEvalRun: db.prepare(`
+      INSERT INTO eval_runs (id, reviewer, guideline_ids_json, created_by, created_at, report_json) VALUES (?, ?, ?, ?, ?, ?)
+    `),
+    listEvalRuns: db.prepare('SELECT * FROM eval_runs ORDER BY rowid'),
   }
 
   // db.transaction 包起來的函式：裡面任何一行出錯，前面寫進去的也會一起取消
@@ -331,6 +392,7 @@ export function createSqliteStore(path: string): Store {
         r.error ?? null,
         r.reviewer,
         r.retrievedPolicyIds ? JSON.stringify(r.retrievedPolicyIds) : null,
+        r.appliedGuidelineIds ? JSON.stringify(r.appliedGuidelineIds) : null,
         r.createdAt,
       )
     },
@@ -368,6 +430,37 @@ export function createSqliteStore(path: string): Store {
         docId: r.doc_id,
         section: r.section,
         text: r.text,
+      }))
+    },
+    appendGuideline(g) {
+      stmt.appendGuideline.run(g.id, g.policyId, g.text, g.sourceFeedbackId, g.createdBy, g.createdAt, g.retiredAt, g.retiredBy)
+    },
+    listGuidelines() {
+      return (stmt.listGuidelines.all() as GuidelineRow[]).map((r) => ({
+        id: r.id,
+        policyId: r.policy_id,
+        text: r.text,
+        sourceFeedbackId: r.source_feedback_id,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+        retiredAt: r.retired_at,
+        retiredBy: r.retired_by,
+      }))
+    },
+    retireGuideline(id, by, at) {
+      stmt.retireGuideline.run(at, by, id)
+    },
+    appendEvalRun(run) {
+      stmt.appendEvalRun.run(run.id, run.reviewer, JSON.stringify(run.guidelineIds), run.createdBy, run.createdAt, JSON.stringify(run.report))
+    },
+    listEvalRuns() {
+      return (stmt.listEvalRuns.all() as EvalRunRow[]).map((r) => ({
+        id: r.id,
+        reviewer: r.reviewer,
+        guidelineIds: JSON.parse(r.guideline_ids_json),
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+        report: JSON.parse(r.report_json),
       }))
     },
   }

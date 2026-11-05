@@ -1,4 +1,5 @@
 import type { ActorRole, AuditAction, Finding, FormValues, RequestStatus } from '@ai-approval/shared'
+import type { EvalReport } from './evals'
 
 export interface ApprovalRequest {
   id: string
@@ -38,7 +39,33 @@ export interface AiReview {
   // 檢索：這次交給 AI 的是哪幾條規範。AI 只看得到這些，也只能引用這些
   // 事後回頭查「AI 為什麼沒提到某條規定」時，先看它到底有沒有看到
   retrievedPolicyIds?: string[]
+  // 這次套用了哪些審查準則（主管的回饋轉成的提醒）
+  appliedGuidelineIds?: string[]
   createdAt: string
+}
+
+// 審查準則：主管標記「AI 有誤」的理由，經管理者採用後，之後的預審會一併交給 AI
+// 例如「一般報修只要說明現象與發生時間就夠了，不必要求完整紀錄」
+// 停用不是刪除：過去的預審套用過它，要查得到當時 AI 拿到的是什麼
+export interface Guideline {
+  id: string
+  policyId: string // 針對哪一條規範
+  text: string
+  sourceFeedbackId: string | null // 從哪一筆主管評價來的
+  createdBy: string
+  createdAt: string
+  retiredAt: string | null
+  retiredBy: string | null
+}
+
+// 一次評估：同一組案例，分別在「不套用準則」與「套用準則」下各跑一次
+export interface EvalRun {
+  id: string
+  reviewer: string
+  guidelineIds: string[]
+  createdBy: string
+  createdAt: string
+  report: EvalReport
 }
 
 // 主管匯入的規範文件（內建的規範寫在 policies.ts，不存在資料庫）
@@ -86,6 +113,11 @@ export interface Store {
   appendPolicyDoc(doc: StoredPolicyDoc, chunks: StoredPolicyChunk[]): void
   listPolicyDocs(): StoredPolicyDoc[]
   listPolicyChunks(): StoredPolicyChunk[] // 依文件匯入順序、條文在文件中的順序
+  appendGuideline(g: Guideline): void
+  listGuidelines(): Guideline[] // 依建立順序，包含已停用的
+  retireGuideline(id: string, by: string, at: string): void
+  appendEvalRun(run: EvalRun): void
+  listEvalRuns(): EvalRun[] // 依執行順序
 }
 
 // 記憶體版：重開伺服器資料就會消失，但速度快、不用檔案，適合跑測試
@@ -96,6 +128,8 @@ export function createStore(): Store {
   const feedback: FindingFeedback[] = []
   const policyDocs: StoredPolicyDoc[] = []
   const policyChunks: StoredPolicyChunk[] = []
+  const guidelines: Guideline[] = []
+  const evalRuns: EvalRun[] = []
 
   return {
     getRequest: (id) => requests.get(id),
@@ -128,5 +162,18 @@ export function createStore(): Store {
     },
     listPolicyDocs: () => [...policyDocs],
     listPolicyChunks: () => [...policyChunks],
+    appendGuideline: (g) => {
+      guidelines.push(g)
+    },
+    // 回傳複本：呼叫端改了物件，也不會偷偷改到「資料庫」裡的資料（SQLite 版本來就是這樣）
+    listGuidelines: () => guidelines.map((g) => ({ ...g })),
+    retireGuideline: (id, by, at) => {
+      const g = guidelines.find((x) => x.id === id)
+      if (g && !g.retiredAt) Object.assign(g, { retiredAt: at, retiredBy: by })
+    },
+    appendEvalRun: (run) => {
+      evalRuns.push(run)
+    },
+    listEvalRuns: () => [...evalRuns],
   }
 }

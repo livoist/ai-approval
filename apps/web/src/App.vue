@@ -10,6 +10,7 @@ import { DEMO_USERS, currentUser, switchUser } from './session'
 const isApprover = computed(() => isApproverRole(currentUser.value.role))
 const APPROVER_LINKS = [
   { to: '/insights', label: 'AI 準確度' },
+  { to: '/tuning', label: 'AI 調校' },
   { to: '/policy-docs', label: '規範文件' },
 ]
 

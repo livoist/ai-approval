@@ -8,6 +8,9 @@ import type {
   AppMeta,
   AiStats,
   ArticleDraft,
+  EvalRun,
+  EvalRunSummary,
+  Guideline,
   PolicyDocSummary,
   PolicyImportPreview,
   RequestSummary,
@@ -77,6 +80,14 @@ export const api = {
     }),
   importPolicyDoc: (input: { formType: FormType; code: string; title: string; fileName: string | null; articles: ArticleDraft[] }) =>
     call<PolicyDocSummary>('/policy-docs', { method: 'POST', body: JSON.stringify(input) }),
+  // AI 調校：審查準則與評估集
+  listGuidelines: () => call<Guideline[]>('/guidelines'),
+  createGuideline: (input: { policyId: string; text: string; feedbackId: string | null }) =>
+    call<Guideline>('/guidelines', { method: 'POST', body: JSON.stringify(input) }),
+  retireGuideline: (id: string) => call<{ ok: true }>(`/guidelines/${id}/retire`, { method: 'POST' }),
+  listEvalRuns: () => call<EvalRunSummary[]>('/evals'),
+  getEvalRun: (id: string) => call<EvalRun>(`/evals/${id}`),
+  startEval: () => call<EvalRun>('/evals', { method: 'POST' }),
   // AI 準確度統計：只有簽核者拿得到，其他人會收到 403
   getAiStats: () => call<AiStats>('/stats/ai'),
   streamReview,

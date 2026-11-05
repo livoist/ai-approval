@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { format } from 'echarts/core'
 import { getFormKind, isApproverRole, isFormType } from '@ai-approval/shared'
-import { api } from '../api'
+import { ApiError, api } from '../api'
+import { ERROR_LABEL } from '../labels'
 import EChart from '../components/EChart.vue'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
@@ -166,6 +167,35 @@ const policyOption = computed(() => {
 // 每條條文一列，條文越多圖越高，不會擠在一起
 const policyHeight = computed(() => 60 + (stats.value?.byPolicy.length ?? 0) * 36)
 
+// ===== 採用為審查準則 =====
+// 主管的理由 → 審查準則 → 之後的預審交給 AI：這是讓 AI 從回饋中改進的那一步
+type IncorrectItem = AiStats['recentIncorrect'][number]
+const adopting = ref<string | null>(null) // 正在採用哪一筆評價
+const draft = ref('')
+const adoptBusy = ref(false)
+const adoptError = ref<string | null>(null)
+
+function startAdopt(item: IncorrectItem) {
+  adopting.value = item.feedbackId
+  draft.value = item.note
+  adoptError.value = null
+}
+
+async function adopt(item: IncorrectItem) {
+  if (!item.policyId) return
+  adoptBusy.value = true
+  adoptError.value = null
+  try {
+    await api.createGuideline({ policyId: item.policyId, text: draft.value.trim(), feedbackId: item.feedbackId })
+    adopting.value = null
+    stats.value = await api.getAiStats()
+  } catch (e) {
+    adoptError.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+  } finally {
+    adoptBusy.value = false
+  }
+}
+
 const formTitle = (type: string) => (isFormType(type) ? getFormKind(type).def.title : type)
 const REVIEWER_LABEL: Record<string, string> = { mock: '模擬審查員' }
 </script>
@@ -272,7 +302,10 @@ const REVIEWER_LABEL: Record<string, string> = { mock: '模擬審查員' }
         </div>
 
         <section class="card">
-          <h2 class="mb-3 font-semibold">主管標記有誤的意見</h2>
+          <h2 class="font-semibold">主管標記有誤的意見</h2>
+          <p class="mb-3 text-xs text-muted">
+            理由寫得好的，可以採用為審查準則：之後預審到這條規範時，AI 會一併讀到這段話。採用後到「AI 調校」跑評估集，確認真的有改善。
+          </p>
           <p v-if="stats.recentIncorrect.length === 0" class="text-sm text-muted">目前沒有被標記有誤的意見。</p>
           <ul v-else class="grid gap-3">
             <li v-for="r in stats.recentIncorrect" :key="r.requestId + r.at" class="grid gap-1 border-b pb-3 text-sm" data-testid="incorrect-item">
@@ -284,6 +317,30 @@ const REVIEWER_LABEL: Record<string, string> = { mock: '模擬審查員' }
               </div>
               <p><span class="text-muted">AI：</span>{{ r.message }}</p>
               <p><span class="text-muted">{{ r.actorId }}：</span>{{ r.note }}</p>
+
+              <!-- 已採用：顯示標記，不能重複採用 -->
+              <p v-if="r.adoptedGuidelineId" class="mt-1 text-xs text-ok" data-testid="adopted">
+                ✓ 已採用為審查準則 ·
+                <RouterLink to="/tuning" class="underline">到 AI 調校查看</RouterLink>
+              </p>
+              <!-- 採用表單：理由預先帶入，可以改寫成更通用的說法 -->
+              <form v-else-if="adopting === r.feedbackId" class="mt-2 grid gap-2" @submit.prevent="adopt(r)">
+                <label class="grid gap-1 text-xs">
+                  <span class="text-muted">
+                    準則內容 · 針對 <span class="font-mono">{{ r.policyId }}</span>
+                    ，寫成以後判斷這條規範時都適用的說法
+                  </span>
+                  <textarea v-model="draft" class="field min-h-16 text-sm" aria-label="準則內容" />
+                </label>
+                <p v-if="adoptError" class="text-xs text-danger">{{ adoptError }}</p>
+                <div class="flex gap-2">
+                  <button type="submit" class="btn btn-primary px-3 py-1 text-xs" :disabled="adoptBusy || !draft.trim()">採用</button>
+                  <button type="button" class="btn px-3 py-1 text-xs" @click="adopting = null">取消</button>
+                </div>
+              </form>
+              <div v-else-if="r.policyId" class="mt-1">
+                <button type="button" class="btn px-2 py-0.5 text-xs" @click="startAdopt(r)">採用為審查準則</button>
+              </div>
             </li>
           </ul>
         </section>

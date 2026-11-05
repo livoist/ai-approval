@@ -21,6 +21,9 @@ export interface AiStats {
   byFormType: { formType: string; title: string; ruleFindings: number; aiFindings: VerdictCounts }[]
   byReviewer: ({ reviewer: string } & VerdictCounts)[]
   recentIncorrect: {
+    feedbackId: string
+    policyId: string | null // AI 引用的第一條條文：採用為準則時，預設針對這一條
+    adoptedGuidelineId: string | null // 已經採用為審查準則的話，是哪一條
     requestId: string
     title: string
     formType: string
@@ -64,6 +67,13 @@ export function computeAiStats(store: Store, options: { now?: Date; days?: numbe
   const byFormType = new Map<string, { ruleFindings: number; aiFindings: VerdictCounts }>()
   const byReviewer = new Map<string, VerdictCounts>()
   const incorrect: AiStats['recentIncorrect'] = []
+  // 哪些主管評價已經被採用成審查準則（停用的不算）
+  const adopted = new Map(
+    store
+      .listGuidelines()
+      .filter((g) => g.sourceFeedbackId && !g.retiredAt)
+      .map((g) => [g.sourceFeedbackId!, g.id]),
+  )
 
   for (const request of store.listRequests()) {
     // 補件重送前的舊版本預審也算：那是 AI 當時真的說過的話，主管也可能評價過
@@ -100,6 +110,9 @@ export function computeAiStats(store: Store, options: { now?: Date; days?: numbe
 
         if (feedback?.verdict === 'incorrect') {
           incorrect.push({
+            feedbackId: feedback.id,
+            policyId: finding.citations[0] ?? null,
+            adoptedGuidelineId: adopted.get(feedback.id) ?? null,
             requestId: request.id,
             title: request.title,
             formType: request.formType,

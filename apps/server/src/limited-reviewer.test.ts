@@ -10,6 +10,7 @@ const input: ReviewInput = {
   details: [],
   narrative: '',
   ruleFindings: [],
+  guidelines: [],
 }
 
 // 會記錄被呼叫幾次的假審查員

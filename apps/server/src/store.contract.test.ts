@@ -5,6 +5,8 @@ import {
   type AiReview,
   type ApprovalRequest,
   type AuditEvent,
+  type EvalRun,
+  type Guideline,
   type Store,
   type StoredPolicyChunk,
   type StoredPolicyDoc,
@@ -156,6 +158,44 @@ for (const [name, create] of implementations) {
       expect(() => store.appendPolicyDoc(doc('trv'), [chunk('trv', '9')])).toThrow()
       expect(store.listPolicyDocs().map((d) => d.id)).toEqual(['trv'])
       expect(store.listPolicyChunks().map((c) => c.id)).toEqual(['trv-1'])
+    })
+
+    it('審查準則：停用只記下時間與人，重複停用不會覆蓋第一次', () => {
+      const store = create()
+      const g: Guideline = {
+        id: 'g1',
+        policyId: 'sop-3.2',
+        text: '有現象與時間就夠了',
+        sourceFeedbackId: null,
+        createdBy: 'manager',
+        createdAt: '2026-11-05T00:00:00.000Z',
+        retiredAt: null,
+        retiredBy: null,
+      }
+      store.appendGuideline(g)
+      store.retireGuideline('g1', 'manager', '2026-11-05T01:00:00.000Z')
+      store.retireGuideline('g1', 'director', '2026-11-05T02:00:00.000Z')
+      expect(store.listGuidelines()).toEqual([{ ...g, retiredAt: '2026-11-05T01:00:00.000Z', retiredBy: 'manager' }])
+    })
+
+    it('評估紀錄：報告整包存進去、整包讀出來', () => {
+      const store = create()
+      const summary = { total: 1, passed: 1, expected: 1, caught: 1, falseAlarms: 0 }
+      const run: EvalRun = {
+        id: 'e1',
+        reviewer: 'mock',
+        guidelineIds: ['g1'],
+        createdBy: 'manager',
+        createdAt: '2026-11-05T00:00:00.000Z',
+        report: {
+          cases: [{ id: 'c1', name: '案例', why: '原因', formType: 'maintenance', shouldFlag: ['sop-3.2'], shouldNotFlag: [] }],
+          guidelines: [{ id: 'g1', policyId: 'sop-3.2', text: '準則' }],
+          baseline: { results: [], summary },
+          withGuidelines: { results: [], summary },
+        },
+      }
+      store.appendEvalRun(run)
+      expect(store.listEvalRuns()).toEqual([run])
     })
   })
 }

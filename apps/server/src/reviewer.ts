@@ -21,6 +21,8 @@ export interface ReviewInput {
   details: { label: string; value: string }[] // 轉成人看得懂的「標籤：值」（給 AI 讀）
   narrative: string // 申請人自己寫的說明（故障說明、報銷事由……），AI 主要判斷這段寫得夠不夠具體
   ruleFindings: Finding[] // 規則引擎已經查到的問題，AI 不用再重複
+  // 審查準則：主管針對過去誤判寫下、經採用的補充說明，只包含這次交給 AI 的條文的準則
+  guidelines: { id: string; policyId: string; text: string }[]
 }
 
 // 審查過程中的「掛勾」：
@@ -74,17 +76,30 @@ const VAGUE_NARRATIVE: Record<FormType, { cite: string; message: string }> = {
   },
 }
 
+// 說明少於幾個字就判定「太簡略」
+// 刻意設得偏嚴：「冷凍庫升溫至零下12度，昨晚起」這種短但具體的說明也會被挑剔，
+// 模擬真實 AI 常見的毛病（對一般案件要求過多），評估集與主管評價才有東西可以抓
+const VAGUE_THRESHOLD = 20
+// 收到這條規範的審查準則之後，放寬成這個長度
+const VAGUE_THRESHOLD_WITH_GUIDELINE = 10
+
 // 假的審查員：模擬 AI 負責的「模糊判斷」，結果固定、免費、不用網路
 // 硬性規則已經由規則引擎處理，這裡只示範 AI 會做的那種判斷：申請人的說明夠不夠具體
 // delayMs 模擬 AI 思考的時間，讓沒有 API key 也看得到「一條一條長出來」的串流效果
+//
+// 審查準則：模擬審查員看不懂文字，只要有針對那條規範的準則，就放寬判斷標準
+// 這是為了在沒有 API key 時也能展示「主管回饋 → 準則 → AI 改善 → 評估驗證」整個閉環；
+// 真正讀懂準則內容的是 Claude，效果要用 Claude 跑評估集才算數
 export function createMockReviewer(options: { delayMs: number }): Reviewer {
   return {
     name: 'mock',
     async review(input, _policies, hooks) {
       const findings: AiFinding[] = []
       await sleep(options.delayMs, hooks?.signal)
-      if (input.narrative.trim().length < 20) {
-        const vague = VAGUE_NARRATIVE[input.formType]
+      const vague = VAGUE_NARRATIVE[input.formType]
+      const relaxed = input.guidelines.some((g) => g.policyId === vague.cite)
+      const threshold = relaxed ? VAGUE_THRESHOLD_WITH_GUIDELINE : VAGUE_THRESHOLD
+      if (input.narrative.trim().length < threshold) {
         const finding: AiFinding = { kind: 'risk', message: vague.message, citations: [vague.cite] }
         findings.push(finding)
         hooks?.onFinding?.(finding)

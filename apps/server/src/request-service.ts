@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import {
-  describeValues,
   getFormKind,
   isApproverRole,
   isFormType,
   needsPlantManager,
   normalizeValues,
-  runRules,
   transition,
   validateValues,
   type ActorRole,
@@ -17,10 +15,11 @@ import {
   type RequestStatus,
 } from '@ai-approval/shared'
 import { computeAiStats } from './ai-stats'
-import { CORE_POLICIES, createPolicyLibrary, type PolicyImportInput } from './policies'
-import { selectRelevant } from './retrieval'
+import { createPolicyLibrary, type PolicyImportInput } from './policies'
+import { runEval } from './evals'
+import { buildReviewContext } from './review-context'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
-import type { ApprovalRequest, FindingFeedback, Store } from './store'
+import type { ApprovalRequest, EvalRun, FindingFeedback, Guideline, Store } from './store'
 
 export interface CurrentUser {
   id: string
@@ -38,10 +37,6 @@ type Listener = (event: ReviewStreamEvent) => void
 
 // AI 審查員在系統裡的身分：只有它能送出 AI_REVIEW_DONE / AI_REVIEW_FAILED
 const AI_ACTOR: CurrentUser = { id: 'ai-reviewer', role: 'system' }
-
-// 每次預審最多交給 AI 幾條規範（另外加上規則已經引用的）
-// 內建的規範都在這個數量以內，所以全部會給；主管匯入更多文件之後，才開始依相關程度挑選
-export const POLICY_TOP_K = 10
 
 // AI 超過這個時間還沒回應就放棄，走預審失敗的流程，不讓申請單卡在 reviewing
 const REVIEW_TIMEOUT_MS = 60_000
@@ -252,46 +247,25 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
       publish(requestId, { type: 'finding', version, finding })
     }
 
-    // 第一步：規則引擎。純程式判斷、瞬間完成，所以這些意見會最先出現在畫面上
-    const formType = request.formType as FormType
-    const kind = getFormKind(formType)
-    const narrative = request.fields[kind.narrativeField]
-    const details = describeValues(kind.def, request.fields)
-
-    const ruleFindings = runRules(formType, request.fields, now())
-    ruleFindings.forEach(emit)
-
-    // 檢索：用申請單的內容當查詢，從規範庫挑出最相關的條文，只把這些交給 AI
-    // 查詢只用標題與填寫的文字，不用欄位名稱：每張報銷單都有「發票號碼」這個欄位，
-    // 拿欄位名稱去查，每次都會查到發票的條文，真正相關的反而被擠掉
-    const query = [request.title, ...Object.values(request.fields).filter((v) => typeof v === 'string')].join('\n')
-    const policies = selectRelevant(policyLibrary.forFormType(formType), query, {
-      topK: POLICY_TOP_K,
-      // 一定要給的：核心條文，以及規則已經引用的條文（AI 才知道規則查到的問題依據是什麼）
-      mustInclude: [...CORE_POLICIES[formType], ...ruleFindings.flatMap((f) => f.citations)],
-    })
+    // 準備：規則引擎 → 檢索規範 → 相關的審查準則（跟評估集用同一套流程）
+    const { ruleFindings, policies, input } = buildReviewContext(
+      { formType: request.formType as FormType, title: request.title, fields: request.fields },
+      { policies: policyLibrary.forFormType(request.formType as FormType), guidelines: store.listGuidelines(), now: now() },
+    )
     const retrievedPolicyIds = policies.map((p) => p.id)
+    const appliedGuidelineIds = input.guidelines.map((g) => g.id)
+
+    // 規則引擎的意見是純程式判斷、瞬間完成，所以會最先出現在畫面上
+    ruleFindings.forEach(emit)
 
     let outcome: 'done' | 'failed'
     try {
-      // 第二步：AI。只負責規則做不到的模糊判斷，並且知道規則已經查到什麼，避免重複
-      const raw = await reviewer.review(
-        {
-          formType,
-          formTitle: kind.def.title,
-          title: request.title,
-          values: request.fields,
-          details,
-          narrative: typeof narrative === 'string' ? narrative : '',
-          ruleFindings,
-        },
-        policies,
-        {
-          signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
-          // 每審出一條：先驗證引用、標上來源，再推播給正在看的人
-          onFinding: (f) => emit({ ...validateFinding(f, policies), source: 'ai' }),
-        },
-      )
+      // AI 只負責規則做不到的模糊判斷，並且知道規則已經查到什麼，避免重複
+      const raw = await reviewer.review(input, policies, {
+        signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
+        // 每審出一條：先驗證引用、標上來源，再推播給正在看的人
+        onFinding: (f) => emit({ ...validateFinding(f, policies), source: 'ai' }),
+      })
       const ai = validateCitations(raw, policies)
 
       // 合併：規則的意見在前、AI 的在後；風險等級取兩邊較高的那一個
@@ -305,6 +279,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
         findings: [...ruleFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
         reviewer: raw.usedReviewer ?? reviewer.name,
         retrievedPolicyIds,
+        appliedGuidelineIds,
         createdAt: now().toISOString(),
       })
       outcome = 'done'
@@ -318,6 +293,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
         error: isTimeout ? 'AI 回應逾時' : err instanceof Error ? err.message : String(err),
         reviewer: reviewer.name,
         retrievedPolicyIds,
+        appliedGuidelineIds,
         createdAt: now().toISOString(),
       })
       outcome = 'failed'
@@ -423,9 +399,103 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     return policyLibrary.importDoc(input, user.id, now())
   }
 
+  // ===== 審查準則：主管的回饋接回 AI =====
+  type GuidelineResult =
+    | { ok: true; guideline: Guideline }
+    | { ok: false; reason: 'forbidden' | 'not_found' | 'already_adopted' }
+    | { ok: false; reason: 'invalid_guideline'; fieldErrors: Record<string, string> }
+
+  function createGuideline(
+    user: CurrentUser,
+    input: { policyId: unknown; text: unknown; feedbackId?: unknown },
+  ): GuidelineResult {
+    if (!isApproverRole(user.role)) return { ok: false, reason: 'forbidden' }
+
+    const errors: Record<string, string> = {}
+    const policyId = typeof input.policyId === 'string' ? input.policyId : ''
+    if (!policyLibrary.all().some((p) => p.id === policyId)) errors.policyId = '請選擇準則針對的規範條文'
+    const text = typeof input.text === 'string' ? input.text.trim() : ''
+    if (text === '' || text.length > 300) errors.text = '請寫下準則內容（300 字以內）'
+    if (Object.keys(errors).length > 0) return { ok: false, reason: 'invalid_guideline', fieldErrors: errors }
+
+    // 同一筆主管評價只能採用一次，避免準則重複
+    const feedbackId = typeof input.feedbackId === 'string' && input.feedbackId ? input.feedbackId : null
+    if (feedbackId && store.listGuidelines().some((g) => g.sourceFeedbackId === feedbackId && !g.retiredAt)) {
+      return { ok: false, reason: 'already_adopted' }
+    }
+
+    const guideline: Guideline = {
+      id: randomUUID(),
+      policyId,
+      text,
+      sourceFeedbackId: feedbackId,
+      createdBy: user.id,
+      createdAt: now().toISOString(),
+      retiredAt: null,
+      retiredBy: null,
+    }
+    store.appendGuideline(guideline)
+    return { ok: true, guideline }
+  }
+
+  function retireGuideline(user: CurrentUser, id: string) {
+    if (!isApproverRole(user.role)) return { ok: false as const, reason: 'forbidden' as const }
+    if (!store.listGuidelines().some((g) => g.id === id)) return { ok: false as const, reason: 'not_found' as const }
+    store.retireGuideline(id, user.id, now().toISOString())
+    return { ok: true as const }
+  }
+
+  // ===== 評估集 =====
+  // 同一時間只跑一次：用 Claude 時一次評估要呼叫 API 二十次，重複按會白花錢
+  let evalRunning = false
+
+  async function startEval(
+    user: CurrentUser,
+  ): Promise<{ ok: true; run: EvalRun } | { ok: false; reason: 'forbidden' | 'eval_running' | 'no_reviewer' }> {
+    if (!isApproverRole(user.role)) return { ok: false, reason: 'forbidden' }
+    if (!reviewer) return { ok: false, reason: 'no_reviewer' }
+    if (evalRunning) return { ok: false, reason: 'eval_running' }
+
+    evalRunning = true
+    try {
+      const report = await runEval({
+        reviewer,
+        policiesFor: (type) => policyLibrary.forFormType(type),
+        guidelines: store.listGuidelines(),
+        now: now(),
+      })
+      const run: EvalRun = {
+        id: randomUUID(),
+        reviewer: reviewer.name,
+        guidelineIds: report.guidelines.map((g) => g.id),
+        createdBy: user.id,
+        createdAt: now().toISOString(),
+        report,
+      }
+      store.appendEvalRun(run)
+      return { ok: true, run }
+    } finally {
+      evalRunning = false
+    }
+  }
+
+  // 歷次評估的摘要（不含每一題的細節），最新的在前
+  function listEvalRuns() {
+    return store
+      .listEvalRuns()
+      .map(({ report, ...run }) => ({ ...run, baseline: report.baseline.summary, withGuidelines: report.withGuidelines.summary }))
+      .reverse()
+  }
+
   return {
     createRequest,
     getAiStats,
+    createGuideline,
+    retireGuideline,
+    listGuidelines: () => store.listGuidelines(),
+    startEval,
+    listEvalRuns,
+    getEvalRun: (id: string) => store.listEvalRuns().find((r) => r.id === id),
     importPolicyDoc,
     listPolicyDocs: () => policyLibrary.listDocs(),
     listPolicies: (type?: FormType) => (type ? policyLibrary.forFormType(type) : policyLibrary.all()),

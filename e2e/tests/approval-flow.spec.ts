@@ -265,3 +265,35 @@ test('規範文件：匯入 PDF，預審時只把相關的條文交給 AI', asyn
   await expect(page.getByTestId(`policy-${code}-3`)).toHaveAttribute('data-retrieved', 'true') // 搭乘高鐵的規定
   await expect(page.getByTestId(`policy-${code}-6`)).not.toHaveAttribute('data-retrieved', 'true') // 住宿的規定
 })
+
+// 放在最後：採用 sop-3.2 的準則之後，模擬審查員對維修單的判斷會放寬，會影響之後送出的單
+test('AI 調校：主管的理由採用為準則，評估集顯示套用後變好', async ({ page }) => {
+  await createAndSubmit(page, '高壓・資料不全')
+  const note = `一般報修有現象與時間就夠了 ${Date.now()}`
+
+  // 主管標記 AI 的意見有誤
+  await switchUser(page, 'manager')
+  const aiFinding = findings(page, 'ai')
+  await aiFinding.getByRole('button', { name: '有誤' }).click()
+  await aiFinding.getByPlaceholder(/AI 錯在哪裡/).fill(note)
+  await aiFinding.getByRole('button', { name: '送出' }).click()
+  await expect(aiFinding.getByText(/manager 標記為有誤/)).toBeVisible()
+
+  // AI 準確度：把這筆理由採用為審查準則
+  await page.getByRole('link', { name: 'AI 準確度' }).click()
+  const item = page.getByTestId('incorrect-item').filter({ hasText: note })
+  await item.getByRole('button', { name: '採用為審查準則' }).click()
+  await expect(item.getByLabel('準則內容')).toHaveValue(note)
+  await item.getByRole('button', { name: '採用', exact: true }).click()
+  await expect(item.getByTestId('adopted')).toBeVisible()
+
+  // AI 調校：準則出現在清單上，執行評估後，套用準則的通過數比較多
+  // exact：剛剛的「已採用」提示裡也有一個「到 AI 調校查看」的連結
+  await page.getByRole('link', { name: 'AI 調校', exact: true }).click()
+  await expect(page.getByTestId('guideline').filter({ hasText: note })).toBeVisible()
+  await page.getByRole('button', { name: '執行評估' }).click()
+  const passed = page.getByTestId('metric-passed')
+  await expect(passed.locator('[data-variant="baseline"]')).toHaveText('6 / 10', { timeout: 15_000 })
+  await expect(passed.locator('[data-variant="with"]')).toHaveText('8 / 10')
+  await expect(page.getByTestId('eval-case')).toHaveCount(10)
+})

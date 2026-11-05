@@ -53,6 +53,7 @@ export interface AiReview {
   error?: string
   reviewer: string
   retrievedPolicyIds?: string[] // 這次交給 AI 的條文
+  appliedGuidelineIds?: string[] // 這次套用的審查準則
 }
 
 export interface RequestDetail extends ApprovalRequest {
@@ -94,6 +95,9 @@ export interface AiStats {
   byFormType: { formType: FormType; title: string; ruleFindings: number; aiFindings: VerdictCounts }[]
   byReviewer: ({ reviewer: string } & VerdictCounts)[]
   recentIncorrect: {
+    feedbackId: string
+    policyId: string | null
+    adoptedGuidelineId: string | null
     requestId: string
     title: string
     formType: FormType
@@ -128,3 +132,53 @@ export interface PolicyImportPreview {
   articles: ArticleDraft[]
   pages: number
 }
+
+// ===== AI 調校：審查準則與評估集（跟 apps/server/src/store.ts、evals.ts 一致）=====
+export interface Guideline {
+  id: string
+  policyId: string
+  text: string
+  sourceFeedbackId: string | null
+  createdBy: string
+  createdAt: string
+  retiredAt: string | null
+  retiredBy: string | null
+}
+
+export interface EvalSummary {
+  total: number
+  passed: number
+  expected: number
+  caught: number
+  falseAlarms: number
+}
+
+export interface EvalCaseResult {
+  caseId: string
+  passed: boolean
+  cited: string[]
+  missed: string[]
+  falseAlarms: string[]
+  findings: { message: string; citations: string[] }[]
+  reviewer: string
+  error?: string
+}
+
+export interface EvalReport {
+  cases: { id: string; name: string; why: string; formType: FormType; shouldFlag: string[]; shouldNotFlag: string[] }[]
+  guidelines: { id: string; policyId: string; text: string }[]
+  baseline: { results: EvalCaseResult[]; summary: EvalSummary }
+  withGuidelines: { results: EvalCaseResult[]; summary: EvalSummary }
+}
+
+export interface EvalRun {
+  id: string
+  reviewer: string
+  guidelineIds: string[]
+  createdBy: string
+  createdAt: string
+  report: EvalReport
+}
+
+// 歷史清單用的摘要：不含每一題的細節
+export type EvalRunSummary = Omit<EvalRun, 'report'> & { baseline: EvalSummary; withGuidelines: EvalSummary }
