@@ -9,6 +9,7 @@ import ReviewPanel from '../components/ReviewPanel.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { ERROR_LABEL, EVENT_LABEL } from '../labels'
 import { formatDateTime } from '../time'
+import { refreshMeta } from '../meta'
 import { currentUser } from '../session'
 import type { PolicyChunk, RequestDetail, ReviewFinding } from '../types'
 
@@ -46,8 +47,9 @@ function startStream() {
           if (event.version === request.value?.version) liveFindings.value.push(event.finding)
         } else if (event.status !== 'reviewing') {
           // 預審結束（完成或失敗）：關掉連線，重新載入以後端存下的正式結果為準
+          // 同時更新 header 的 AI 用量：剛剛這次預審可能用掉了一次額度
           stopStream()
-          await load()
+          await Promise.all([load(), refreshMeta()])
         }
       },
       controller.signal,

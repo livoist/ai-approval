@@ -1,16 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { api } from './api'
+import { onMounted } from 'vue'
+import { meta, refreshMeta } from './meta'
 import { DEMO_USERS, currentUser, switchUser } from './session'
-import type { AppMeta } from './types'
 
 // 公開 demo 時顯示提示；拿不到就當作一般環境，不影響其他功能
-const meta = ref<AppMeta | null>(null)
-onMounted(async () => {
-  try {
-    meta.value = await api.getMeta()
-  } catch {}
-})
+// 預審完成時，詳情頁會呼叫 refreshMeta()，AI 用量就會即時更新
+onMounted(refreshMeta)
 </script>
 
 <template>
