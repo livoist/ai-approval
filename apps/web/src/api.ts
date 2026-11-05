@@ -6,6 +6,7 @@ import type {
   PolicyChunk,
   RequestDetail,
   AppMeta,
+  AiStats,
   RequestSummary,
   ReviewStreamEvent,
 } from './types'
@@ -62,6 +63,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  // AI 準確度統計：只有簽核者拿得到，其他人會收到 403
+  getAiStats: () => call<AiStats>('/stats/ai'),
   streamReview,
 }
 

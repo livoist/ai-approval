@@ -198,3 +198,30 @@ test('多層級簽核：未超過門檻時，簽核路線沒有廠長', async ({
   await expect(status(page)).toHaveText('草稿')
   await expect(page.getByRole('list', { name: '簽核路線' }).locator('[data-step="director"]')).toHaveCount(0)
 })
+
+test('AI 準確度：主管的評價累積成統計，申請人看不到', async ({ page }) => {
+  await createAndSubmit(page, '高壓・資料不全')
+
+  // 主管把 AI 的意見標記為有誤
+  await switchUser(page, 'manager')
+  const aiFinding = findings(page, 'ai')
+  await aiFinding.getByRole('button', { name: '有誤' }).click()
+  await aiFinding.getByPlaceholder(/AI 錯在哪裡/).fill('一般報修，說明已經足夠')
+  await aiFinding.getByRole('button', { name: '送出' }).click()
+  await expect(aiFinding.getByText('manager 標記為有誤')).toBeVisible()
+
+  await page.getByRole('link', { name: 'AI 準確度' }).click()
+  // 所有 E2E 測試共用同一個後端，前面的測試可能也標記過有誤，所以不檢查確切數字
+  await expect(page.getByTestId('kpi-被標記有誤')).toBeVisible()
+  // 最常出錯的條文，以及主管剛剛寫的理由
+  await expect(page.getByTestId('worst-policy')).toContainText('sop-3.2')
+  await expect(page.getByTestId('incorrect-item').filter({ hasText: '一般報修，說明已經足夠' })).toBeVisible()
+  // 兩張圖都有畫出來
+  await expect(page.getByRole('img', { name: /每日 AI 意見數/ })).toBeVisible()
+  await expect(page.getByRole('img', { name: /各條文的 AI 意見數/ })).toBeVisible()
+
+  // 申請人：看不到入口，直接打網址也看不到資料
+  await switchUser(page, 'alice')
+  await expect(page.getByRole('link', { name: 'AI 準確度' })).toHaveCount(0)
+  await expect(page.getByText('只有簽核者可以查看')).toBeVisible()
+})

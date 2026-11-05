@@ -117,3 +117,12 @@ describe('評價 AI 意見 API', () => {
     await request(app).post(url).set(asManager).send({ verdict: 'maybe' }).expect(400)
   })
 })
+
+describe('AI 準確度 API', () => {
+  it('主管 → 200；申請人 → 403', async () => {
+    const app = createApp(createRequestService(createStore(), mockReviewer))
+    const res = await request(app).get('/stats/ai').set(asManager).expect(200)
+    expect(res.body.totals.reviews).toBe(0)
+    await request(app).get('/stats/ai').set(asAlice).expect(403)
+  })
+})

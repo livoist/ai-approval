@@ -118,6 +118,15 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
   })
 
   // 有哪些申請單可以建立（之後可以依部門、角色過濾）
+  app.get('/stats/ai', (req, res) => {
+    const result = service.getAiStats(req.user!)
+    if (!result.ok) {
+      res.status(STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.json(result.stats)
+  })
+
   app.get('/forms', (_req, res) => {
     res.json(FORM_TYPES.map((type) => ({ type, title: getFormKind(type).def.title })))
   })

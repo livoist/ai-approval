@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AiInsights from './views/AiInsights.vue'
 import RequestDetail from './views/RequestDetail.vue'
 import RequestList from './views/RequestList.vue'
 
@@ -7,5 +8,6 @@ export const router = createRouter({
   routes: [
     { path: '/', component: RequestList },
     { path: '/requests/:id', component: RequestDetail, props: true },
+    { path: '/insights', component: AiInsights },
   ],
 })

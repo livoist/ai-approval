@@ -16,6 +16,7 @@ import {
   type RequestEvent,
   type RequestStatus,
 } from '@ai-approval/shared'
+import { computeAiStats } from './ai-stats'
 import { policiesFor } from './policies'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
 import type { ApprovalRequest, FindingFeedback, Store } from './store'
@@ -51,9 +52,16 @@ function riskFromRules(findings: Finding[]): RiskLevel {
   return 'low'
 }
 
+export interface ServiceOptions {
+  // 「現在幾點」也從外面傳進來：測試可以固定時間，示範資料可以放在過去幾天
+  now?: () => Date
+}
+
 // 業務邏輯層：只關心「規則」，完全不知道 HTTP、Express 的存在
 // reviewer 是選填的：沒給的話就不會自動預審（舊的測試可以照常手動推進狀態）
-export function createRequestService(store: Store, reviewer?: Reviewer) {
+export function createRequestService(store: Store, reviewer?: Reviewer, options: ServiceOptions = {}) {
+  const now = options.now ?? (() => new Date())
+
   // 正在跑的預審：讓測試可以「等它跑完」再檢查結果
   const pendingReviews = new Map<string, Promise<void>>()
 
@@ -119,7 +127,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     const form = checkForm(input.formType, input)
     if (!form.ok) return form
 
-    const now = new Date().toISOString()
+    const at = now().toISOString()
     const request: ApprovalRequest = {
       id: randomUUID(),
       formType: input.formType,
@@ -128,8 +136,8 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       applicantId: user.id,
       status: 'draft',
       version: 1,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: at,
+      updatedAt: at,
     }
     store.saveRequest(request)
     store.appendAudit({
@@ -139,7 +147,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       event: 'CREATE',
       from: null,
       to: 'draft',
-      at: now,
+      at,
     })
     return { ok: true, request }
   }
@@ -164,8 +172,8 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     const form = checkForm(request.formType as FormType, input)
     if (!form.ok) return form
 
-    const now = new Date().toISOString()
-    const updated: ApprovalRequest = { ...request, title: form.title, fields: form.fields, updatedAt: now }
+    const at = now().toISOString()
+    const updated: ApprovalRequest = { ...request, title: form.title, fields: form.fields, updatedAt: at }
     store.saveRequest(updated)
     store.appendAudit({
       id: randomUUID(),
@@ -174,7 +182,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       event: 'UPDATE',
       from: request.status,
       to: request.status,
-      at: now,
+      at,
     })
     return { ok: true, request: updated }
   }
@@ -195,16 +203,16 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
 
     // 規則全部交給 shared 的狀態機判斷，這裡不重寫任何 if-else
     // 這張單要不要送廠長，由規則引擎依內容判斷；狀態機用它選出正確的下一步
-    const ctx = { needsPlantManager: needsPlantManager(request.formType as FormType, request.fields) }
+    const ctx = { needsPlantManager: needsPlantManager(request.formType as FormType, request.fields, now()) }
     const result = transition(request.status, event, user.role, ctx)
     if (!result.ok) return result
 
-    const now = new Date().toISOString()
+    const at = now().toISOString()
     const updated: ApprovalRequest = {
       ...request,
       status: result.next,
       version: event === 'RESUBMIT' ? request.version + 1 : request.version,
-      updatedAt: now,
+      updatedAt: at,
     }
     store.saveRequest(updated)
     store.appendAudit({
@@ -214,7 +222,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       event,
       from: request.status,
       to: result.next,
-      at: now,
+      at,
     })
     publish(requestId, { type: 'status', status: updated.status })
 
@@ -244,7 +252,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     const policies = policiesFor(formType)
     const narrative = request.fields[kind.narrativeField]
 
-    const ruleFindings = runRules(formType, request.fields)
+    const ruleFindings = runRules(formType, request.fields, now())
     ruleFindings.forEach(emit)
 
     let outcome: 'done' | 'failed'
@@ -279,7 +287,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
         summary: ai.summary,
         findings: [...ruleFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
         reviewer: raw.usedReviewer ?? reviewer.name,
-        createdAt: new Date().toISOString(),
+        createdAt: now().toISOString(),
       })
       outcome = 'done'
     } catch (err) {
@@ -291,7 +299,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
         status: 'failed',
         error: isTimeout ? 'AI 回應逾時' : err instanceof Error ? err.message : String(err),
         reviewer: reviewer.name,
-        createdAt: new Date().toISOString(),
+        createdAt: now().toISOString(),
       })
       outcome = 'failed'
     } finally {
@@ -368,7 +376,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
       verdict: input.verdict,
       note,
       actorId: user.id,
-      createdAt: new Date().toISOString(),
+      createdAt: now().toISOString(),
     }
     store.appendFeedback(feedback)
     return { ok: true, feedback }
@@ -383,8 +391,15 @@ export function createRequestService(store: Store, reviewer?: Reviewer) {
     }))
   }
 
+  // AI 準確度統計：主管的評價只有簽核者看得到，申請人看了也沒有用
+  function getAiStats(user: CurrentUser) {
+    if (!isApproverRole(user.role)) return { ok: false as const, reason: 'forbidden' as const }
+    return { ok: true as const, stats: computeAiStats(store, { now: now() }) }
+  }
+
   return {
     createRequest,
+    getAiStats,
     listSummaries,
     updateRequest,
     sendEvent,

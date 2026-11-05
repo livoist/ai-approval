@@ -77,3 +77,29 @@ export interface PolicyChunk {
   section: string
   text: string
 }
+
+// AI 準確度統計，跟 apps/server/src/ai-stats.ts 的 AiStats 一致
+// 「未評價」= total - correct - incorrect
+export interface VerdictCounts {
+  total: number
+  correct: number
+  incorrect: number
+}
+
+export interface AiStats {
+  totals: { reviews: number; ruleFindings: number; aiFindings: VerdictCounts }
+  daily: ({ date: string } & VerdictCounts)[]
+  byPolicy: ({ policyId: string | null; docTitle: string; section: string; text: string } & VerdictCounts)[]
+  byFormType: { formType: FormType; title: string; ruleFindings: number; aiFindings: VerdictCounts }[]
+  byReviewer: ({ reviewer: string } & VerdictCounts)[]
+  recentIncorrect: {
+    requestId: string
+    title: string
+    formType: FormType
+    message: string
+    citations: string[]
+    note: string
+    actorId: string
+    at: string
+  }[]
+}
