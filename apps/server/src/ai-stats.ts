@@ -92,6 +92,8 @@ export function computeAiStats(store: Store, options: { now?: Date; days?: numbe
 
       ;(review.findings ?? []).forEach((finding: Finding, index) => {
         // 規則的意見是程式判斷的，沒有「對錯」可言，只算數量
+        // 輸入防護的意見也是程式判斷，不算 AI 的表現
+        if (finding.source === 'guard') return
         if (finding.source === 'rule') {
           totals.ruleFindings++
           form.ruleFindings++

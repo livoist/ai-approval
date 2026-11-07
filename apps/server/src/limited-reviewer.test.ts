@@ -11,6 +11,7 @@ const input: ReviewInput = {
   narrative: '',
   ruleFindings: [],
   guidelines: [],
+  removedInjections: 0,
 }
 
 // 會記錄被呼叫幾次的假審查員

@@ -43,6 +43,7 @@ const KIND: Record<ReviewFinding['kind'], { label: string; class: string }> = {
 const SOURCE: Record<ReviewFinding['source'], { label: string; class: string }> = {
   rule: { label: '規則', class: 'border-ink/20 text-ink' },
   ai: { label: 'AI', class: 'border-accent/40 text-accent' },
+  guard: { label: '防護', class: 'border-danger/40 text-danger' },
 }
 // 加入 source 之前存的舊資料沒有這個欄位；當時的意見全部來自 AI 審查員
 const sourceOf = (f: ReviewFinding) => SOURCE[f.source ?? 'ai']
@@ -68,6 +69,10 @@ const sourceOf = (f: ReviewFinding) => SOURCE[f.source ?? 'ai']
           {{ RISK[review.riskLevel!].label }}
         </span>
         {{ review.summary }}
+      </p>
+      <!-- 個資只遮罩送給 AI 的那一份；主管看到的是原文，所以要告訴他 AI 沒看到哪些 -->
+      <p v-if="!reviewing && review?.maskedPii?.length" class="mb-3 text-xs text-muted" data-testid="masked-pii">
+        🔒 送給 AI 前已遮罩：{{ review.maskedPii.map((p) => `${p.label} ${p.count} 個`).join('、') }}
       </p>
 
       <!-- TransitionGroup：新的意見加進陣列時，自動套用 enter 動畫 -->

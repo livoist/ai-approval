@@ -248,15 +248,18 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     }
 
     // 準備：規則引擎 → 檢索規範 → 相關的審查準則（跟評估集用同一套流程）
-    const { ruleFindings, policies, input } = buildReviewContext(
+    const { ruleFindings, guardFindings, guard, policies, input } = buildReviewContext(
       { formType: request.formType as FormType, title: request.title, fields: request.fields },
       { policies: policyLibrary.forFormType(request.formType as FormType), guidelines: store.listGuidelines(), now: now() },
     )
     const retrievedPolicyIds = policies.map((p) => p.id)
     const appliedGuidelineIds = input.guidelines.map((g) => g.id)
 
-    // 規則引擎的意見是純程式判斷、瞬間完成，所以會最先出現在畫面上
+    const maskedPii = guard.pii.map(({ label, count }) => ({ label, count }))
+
+    // 規則引擎與輸入防護都是純程式判斷、瞬間完成，所以會最先出現在畫面上
     ruleFindings.forEach(emit)
+    guardFindings.forEach(emit)
 
     let outcome: 'done' | 'failed'
     try {
@@ -274,12 +277,14 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
         requestId,
         requestVersion: version,
         status: 'done',
-        riskLevel: maxRisk(riskFromRules(ruleFindings), ai.riskLevel),
+        // 有人試圖影響 AI，至少是中風險：主管要特別看一下這張單
+        riskLevel: maxRisk(maxRisk(riskFromRules(ruleFindings), guardFindings.length ? 'medium' : 'low'), ai.riskLevel),
         summary: ai.summary,
-        findings: [...ruleFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
+        findings: [...ruleFindings, ...guardFindings, ...ai.findings.map((f) => ({ ...f, source: 'ai' as const }))],
         reviewer: raw.usedReviewer ?? reviewer.name,
         retrievedPolicyIds,
         appliedGuidelineIds,
+        maskedPii,
         createdAt: now().toISOString(),
       })
       outcome = 'done'
@@ -446,7 +451,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
   }
 
   // ===== 評估集 =====
-  // 同一時間只跑一次：用 Claude 時一次評估要呼叫 API 二十次，重複按會白花錢
+  // 同一時間只跑一次：用 Claude 時一次評估要呼叫 API 二十幾次，重複按會白花錢
   let evalRunning = false
   // 進度只存在記憶體：只有「正在跑」的那一次需要，跑完就清掉
   let evalProgress: { done: number; total: number; startedAt: string; startedBy: string } | null = null

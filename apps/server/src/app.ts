@@ -7,6 +7,7 @@ import {
   type FormValues,
   type RequestEvent,
 } from '@ai-approval/shared'
+import { looksLikeInjection } from './guard'
 import { InvalidPdfError, extractPdfLines, splitIntoArticles } from './pdf-import'
 import type { CurrentUser, RequestService } from './request-service'
 
@@ -257,7 +258,9 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
         res.status(422).json({ error: 'no_text' })
         return
       }
-      res.json({ ...splitIntoArticles(lines), pages })
+      // 規範條文會原封不動交給 AI：條文裡如果藏了給 AI 的指令，在主管確認時就要標出來
+      const { title, articles } = splitIntoArticles(lines)
+      res.json({ title, articles: articles.map((a) => ({ ...a, suspicious: looksLikeInjection(a.text) })), pages })
     } catch (err) {
       if (err instanceof InvalidPdfError) {
         res.status(400).json({ error: 'invalid_pdf' })

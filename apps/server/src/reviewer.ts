@@ -23,6 +23,8 @@ export interface ReviewInput {
   ruleFindings: Finding[] // 規則引擎已經查到的問題，AI 不用再重複
   // 審查準則：主管針對過去誤判寫下、經採用的補充說明，只包含這次交給 AI 的條文的準則
   guidelines: { id: string; policyId: string; text: string }[]
+  // 輸入防護移除了幾段疑似指令的文字：讓 AI 知道申請內容被動過，判斷時更保守
+  removedInjections: number
 }
 
 // 審查過程中的「掛勾」：

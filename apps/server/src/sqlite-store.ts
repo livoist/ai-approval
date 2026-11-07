@@ -138,7 +138,12 @@ const MIGRATION_4 = `
   ALTER TABLE ai_reviews ADD COLUMN applied_guidelines_json TEXT;
 `
 
-const MIGRATIONS = [MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4]
+// 第 5 步：記錄送給 AI 前遮罩了哪些個資
+const MIGRATION_5 = `
+  ALTER TABLE ai_reviews ADD COLUMN masked_pii_json TEXT;
+`
+
+const MIGRATIONS = [MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5]
 
 function migrate(db: Database.Database) {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number }
@@ -190,6 +195,7 @@ interface ReviewRow {
   reviewer: string
   retrieved_json: string | null
   applied_guidelines_json: string | null
+  masked_pii_json: string | null
   created_at: string
 }
 
@@ -284,6 +290,7 @@ const toReview = (r: ReviewRow): AiReview => ({
   reviewer: r.reviewer,
   ...(r.retrieved_json ? { retrievedPolicyIds: JSON.parse(r.retrieved_json) } : {}),
   ...(r.applied_guidelines_json ? { appliedGuidelineIds: JSON.parse(r.applied_guidelines_json) } : {}),
+  ...(r.masked_pii_json ? { maskedPii: JSON.parse(r.masked_pii_json) } : {}),
   createdAt: r.created_at,
 })
 
@@ -315,8 +322,8 @@ export function createSqliteStore(path: string): Store {
     `),
     listAudit: db.prepare('SELECT * FROM audit_events WHERE request_id = ? ORDER BY rowid'),
     appendReview: db.prepare(`
-      INSERT INTO ai_reviews (id, request_id, request_version, status, risk_level, summary, findings_json, error, reviewer, retrieved_json, applied_guidelines_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ai_reviews (id, request_id, request_version, status, risk_level, summary, findings_json, error, reviewer, retrieved_json, applied_guidelines_json, masked_pii_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     listReviews: db.prepare('SELECT * FROM ai_reviews WHERE request_id = ? ORDER BY rowid'),
     appendFeedback: db.prepare(`
@@ -393,6 +400,7 @@ export function createSqliteStore(path: string): Store {
         r.reviewer,
         r.retrievedPolicyIds ? JSON.stringify(r.retrievedPolicyIds) : null,
         r.appliedGuidelineIds ? JSON.stringify(r.appliedGuidelineIds) : null,
+        r.maskedPii ? JSON.stringify(r.maskedPii) : null,
         r.createdAt,
       )
     },

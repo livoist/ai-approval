@@ -41,6 +41,8 @@ export interface AiReview {
   retrievedPolicyIds?: string[]
   // 這次套用了哪些審查準則（主管的回饋轉成的提醒）
   appliedGuidelineIds?: string[]
+  // 送給 AI 前遮罩了哪些個資（只記種類與數量，不記內容）
+  maskedPii?: { label: string; count: number }[]
   createdAt: string
 }
 

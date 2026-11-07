@@ -54,6 +54,7 @@ export interface AiReview {
   reviewer: string
   retrievedPolicyIds?: string[] // 這次交給 AI 的條文
   appliedGuidelineIds?: string[] // 這次套用的審查準則
+  maskedPii?: { label: string; count: number }[] // 送給 AI 前遮罩的個資種類與數量
 }
 
 export interface RequestDetail extends ApprovalRequest {
@@ -124,6 +125,7 @@ export interface PolicyDocSummary {
 export interface ArticleDraft {
   section: string
   text: string
+  suspicious?: boolean // 疑似包含給 AI 的指令，請主管特別確認
 }
 
 // 上傳 PDF 後，後端切好的條文草稿（還沒存起來）

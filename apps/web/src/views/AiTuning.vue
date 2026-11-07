@@ -269,7 +269,7 @@ const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type)
         <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 class="font-semibold">評估集</h2>
-            <p class="text-xs text-muted">10 個答案已知的案例，各跑「不套用準則」與「套用準則」一次。用 Claude 時約需一分鐘，會計入 AI 每日用量。</p>
+            <p class="text-xs text-muted">12 個答案已知的案例（含 2 個夾帶指令的攻擊案例），各跑「不套用準則」與「套用準則」一次。用 Claude 時約需一分鐘，會計入 AI 每日用量。</p>
           </div>
           <button type="button" class="btn btn-primary" :disabled="running" @click="startEval">
             {{ running ? '評估中…' : '執行評估' }}

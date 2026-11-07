@@ -239,7 +239,13 @@ async function save() {
               data-testid="article-row"
             >
               <input v-model="a.section" class="field text-center font-mono" aria-label="條號" />
-              <textarea v-model="a.text" class="field min-h-16 text-sm leading-relaxed" aria-label="條文內容" />
+              <div class="grid gap-1">
+                <textarea v-model="a.text" class="field min-h-16 text-sm leading-relaxed" aria-label="條文內容" />
+                <!-- 規範條文會原封不動交給 AI：藏在 PDF 裡的指令，要在這一步攔下來 -->
+                <p v-if="a.suspicious" class="text-xs text-danger" data-testid="suspicious-article">
+                  ⚠ 這段疑似包含給 AI 的指令（例如要它忽略規範），請確認內容，或直接刪除
+                </p>
+              </div>
               <button type="button" class="btn px-2 text-xs text-muted" @click="removeArticle(a.key)">刪除</button>
             </li>
           </ol>

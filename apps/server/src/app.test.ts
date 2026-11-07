@@ -204,7 +204,7 @@ describe('AI 調校 API', () => {
     await request(app).get('/evals').set(asAlice).expect(403)
 
     const run = await request(app).post('/evals').set(asManager).expect(201)
-    expect(run.body.report.baseline.summary.total).toBe(10)
+    expect(run.body.report.baseline.summary.total).toBe(12)
     const list = await request(app).get('/evals').set(asManager).expect(200)
     expect(list.body.map((r: { id: string }) => r.id)).toEqual([run.body.id])
     await request(app).get(`/evals/${run.body.id}`).set(asManager).expect(200)

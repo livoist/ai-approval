@@ -31,31 +31,31 @@ describe('評估集', () => {
 
   it('不套用準則：該抓的都抓到，但「簡短但具體」的說明會被誤報', async () => {
     const report = await runEval({ reviewer: mockReviewer, policiesFor, guidelines: [], now: NOW })
-    expect(report.baseline.summary).toEqual({ total: 10, passed: 6, expected: 4, caught: 4, falseAlarms: 4 })
+    expect(report.baseline.summary).toEqual({ total: 12, passed: 8, expected: 6, caught: 6, falseAlarms: 4 })
     const failed = report.baseline.results.filter((r) => !r.passed).map((r) => r.caseId)
     expect(failed).toEqual(['mnt-ok-short-1', 'mnt-ok-short-2', 'exp-ok-short-1', 'exp-ok-short-2'])
   })
 
   it('套用 sop-3.2 的準則後，維修單的誤報消失，報銷單不受影響', async () => {
     const report = await runEval({ reviewer: mockReviewer, policiesFor, guidelines: [guideline('sop-3.2')], now: NOW })
-    expect(report.withGuidelines.summary).toEqual({ total: 10, passed: 8, expected: 4, caught: 4, falseAlarms: 2 })
+    expect(report.withGuidelines.summary).toEqual({ total: 12, passed: 10, expected: 6, caught: 6, falseAlarms: 2 })
     // 對照組不受準則影響
-    expect(report.baseline.summary.passed).toBe(6)
+    expect(report.baseline.summary.passed).toBe(8)
     expect(report.guidelines.map((g) => g.policyId)).toEqual(['sop-3.2'])
   })
 
-  it('每完成一題回報一次進度，兩輪共 20 題', async () => {
+  it('每完成一題回報一次進度，兩輪共 24 題', async () => {
     const seen: string[] = []
     await runEval({ reviewer: mockReviewer, policiesFor, guidelines: [], now: NOW, onProgress: (d, t) => seen.push(`${d}/${t}`) })
-    expect(seen[0]).toBe('0/20')
-    expect(seen.at(-1)).toBe('20/20')
-    expect(seen).toHaveLength(21)
+    expect(seen[0]).toBe('0/24')
+    expect(seen.at(-1)).toBe('24/24')
+    expect(seen).toHaveLength(25)
   })
 
   it('停用的準則不會套用', async () => {
     const report = await runEval({ reviewer: mockReviewer, policiesFor, guidelines: [guideline('sop-3.2', true)], now: NOW })
     expect(report.guidelines).toEqual([])
-    expect(report.withGuidelines.summary.passed).toBe(6)
+    expect(report.withGuidelines.summary.passed).toBe(8)
   })
 
   it('審查員出錯的案例算沒通過，其他案例照跑', async () => {
@@ -69,7 +69,7 @@ describe('評估集', () => {
     const report = await runEval({ reviewer: flaky, policiesFor, guidelines: [], now: NOW })
     const broken = report.baseline.results.find((r) => r.caseId === 'mnt-vague-2')!
     expect(broken).toMatchObject({ passed: false, error: 'timeout', missed: ['sop-3.2'] })
-    expect(report.baseline.summary.total).toBe(10)
+    expect(report.baseline.summary.total).toBe(12)
   })
 })
 
@@ -132,7 +132,7 @@ describe('審查準則接回預審', () => {
     expect(result.ok).toBe(true)
     expect(service.getEvalProgress()).toEqual({ running: false })
     const [run] = service.listEvalRuns()
-    expect(run).toMatchObject({ reviewer: 'mock', createdBy: 'manager', baseline: { passed: 6 }, withGuidelines: { passed: 8 } })
-    expect(service.getEvalRun(run!.id)!.report.cases).toHaveLength(10)
+    expect(run).toMatchObject({ reviewer: 'mock', createdBy: 'manager', baseline: { passed: 8 }, withGuidelines: { passed: 10 } })
+    expect(service.getEvalRun(run!.id)!.report.cases).toHaveLength(12)
   })
 })

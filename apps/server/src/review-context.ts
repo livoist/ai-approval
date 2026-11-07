@@ -1,10 +1,11 @@
 import { describeValues, getFormKind, runRules, type Finding, type FormType, type FormValues } from '@ai-approval/shared'
+import { createGuard, type GuardReport } from './guard'
 import { CORE_POLICIES, type PolicyChunk } from './policies'
 import { selectRelevant } from './retrieval'
 import type { ReviewInput } from './reviewer'
 import type { Guideline } from './store'
 
-// 預審前的準備：規則引擎 → 檢索規範 → 挑出相關的審查準則 → 組成交給 AI 的輸入
+// 預審前的準備：規則引擎 → 檢索規範 → 挑出相關的審查準則 → 輸入防護 → 組成交給 AI 的輸入
 //
 // 抽成獨立的函式，是因為有兩個地方要用：
 // - 真正的預審（request-service）
@@ -24,10 +25,9 @@ export interface ReviewSubject {
 export function buildReviewContext(
   subject: ReviewSubject,
   options: { policies: readonly PolicyChunk[]; guidelines: readonly Guideline[]; now: Date },
-): { ruleFindings: Finding[]; policies: PolicyChunk[]; input: ReviewInput } {
+): { ruleFindings: Finding[]; guardFindings: Finding[]; guard: GuardReport; policies: PolicyChunk[]; input: ReviewInput } {
   const { formType, title, fields } = subject
   const kind = getFormKind(formType)
-  const narrative = fields[kind.narrativeField]
 
   // 第一步：規則引擎
   const ruleFindings = runRules(formType, fields, options.now)
@@ -47,18 +47,47 @@ export function buildReviewContext(
     .filter((g) => !g.retiredAt && given.has(g.policyId))
     .map(({ id, policyId, text }) => ({ id, policyId, text }))
 
+  // 第四步：輸入防護。規則引擎用的是原始資料（程式判斷不會被文字騙），
+  // 送給 AI 的標題、欄位、說明則先移除疑似指令、遮罩個資
+  // 每個文字欄位只處理一次（說明欄也是欄位之一），被移除的句子才不會重複計算
+  const g = createGuard()
+  const safeTitle = g.clean(title)
+  const safeFields: FormValues = Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [key, typeof value === 'string' ? g.clean(value) : value]),
+  )
+  const safeNarrative = safeFields[kind.narrativeField]
+  const guard = g.report()
+
+  // 有人試圖影響 AI，這件事本身就要讓主管知道
+  const guardFindings: Finding[] =
+    guard.injections.length > 0
+      ? [
+          {
+            kind: 'risk',
+            source: 'guard',
+            citations: [],
+            message: `申請內容有 ${guard.injections.length} 段疑似要求 AI 改變判斷的文字，已在送給 AI 前移除，請主管留意：「${truncate(guard.injections[0]!)}」`,
+          },
+        ]
+      : []
+
   return {
     ruleFindings,
+    guardFindings,
+    guard,
     policies,
     input: {
       formType,
       formTitle: kind.def.title,
-      title,
+      title: safeTitle,
       values: fields,
-      details: describeValues(kind.def, fields),
-      narrative: typeof narrative === 'string' ? narrative : '',
+      details: describeValues(kind.def, safeFields),
+      narrative: typeof safeNarrative === 'string' ? safeNarrative : '',
       ruleFindings,
       guidelines,
+      removedInjections: guard.injections.length,
     },
   }
 }
+
+const truncate = (s: string, max = 40) => (s.length > max ? `${s.slice(0, max)}…` : s)

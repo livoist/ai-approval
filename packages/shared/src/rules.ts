@@ -1,12 +1,13 @@
 import type { FormValues } from './form'
 
 // 預審意見：不論是規則引擎還是 AI 產生的，都是這個形狀
-// source 讓主管一眼分得出來：「規則」是確定的，「AI」是建議
+// source 讓主管一眼分得出來：「規則」是確定的，「AI」是建議，
+// 「防護」是輸入檢查發現的狀況（例如申請內容夾帶要 AI 改變判斷的文字）
 export interface Finding {
   kind: 'missing' | 'risk' | 'notice' | 'ok'
   message: string
   citations: string[] // 規範條文 id
-  source: 'rule' | 'ai'
+  source: 'rule' | 'ai' | 'guard'
 }
 
 // 規則執行時可以用到的外部資訊
