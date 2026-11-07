@@ -331,15 +331,19 @@ const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type)
           </table>
 
           <!-- 每一題 -->
-          <h3 class="mb-2 text-sm font-medium">各案例結果</h3>
+          <h3 class="text-sm font-medium">各案例結果</h3>
+          <!-- 圖例：三欄的關係用一句話講清楚，看的人不用另外問 -->
+          <p class="mb-2 text-xs text-muted" data-testid="eval-legend">
+            「期望」是標準答案。同一題 AI 做兩次，一次不給審查準則、一次給，各自跟標準答案比對；沒通過的可以展開看 AI 實際說了什麼。
+          </p>
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[36rem] text-sm">
+            <table class="w-full min-w-[44rem] text-sm">
               <thead class="text-left text-xs text-muted">
                 <tr>
                   <th class="py-1 font-normal">案例</th>
                   <th class="font-normal">期望</th>
-                  <th class="w-28 font-normal">不套用準則</th>
-                  <th class="w-28 font-normal">套用準則</th>
+                  <th class="w-44 font-normal">不套用準則</th>
+                  <th class="w-44 font-normal">套用準則</th>
                 </tr>
               </thead>
               <tbody>
@@ -351,7 +355,16 @@ const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type)
                   <td class="py-2 pr-3 font-mono text-xs">{{ expectation(c) }}</td>
                   <td v-for="r in [c.baseline, c.withGuidelines]" :key="r === c.baseline ? 'b' : 'w'" class="py-2 text-xs">
                     <span v-if="r.passed" class="font-medium text-ok">✓ 通過</span>
-                    <span v-else class="font-medium text-danger">✗ {{ reason(r) }}</span>
+                    <!-- 沒通過：展開看 AI 的原話，才判斷得出該改準則、還是標準答案定錯了 -->
+                    <details v-else data-testid="eval-failure">
+                      <summary class="cursor-pointer font-medium text-danger">✗ {{ reason(r) }}</summary>
+                      <ul v-if="r.findings.length" class="mt-1 grid gap-1">
+                        <li v-for="(f, i) in r.findings" :key="i" class="rounded bg-bg px-2 py-1 leading-relaxed text-ink">
+                          <span class="mr-1 font-mono text-muted">{{ f.citations.join('、') || '無引用' }}</span>{{ f.message }}
+                        </li>
+                      </ul>
+                      <p v-else class="mt-1 text-muted">AI 沒有提出任何意見。</p>
+                    </details>
                   </td>
                 </tr>
               </tbody>
