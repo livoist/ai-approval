@@ -4,10 +4,11 @@
 // - 變貴、變慢（每次預審都要付整份規範的 token）
 // - 變不準（不相關的條文是雜訊，AI 比較容易引用錯）
 //
-// 為什麼用 BM25 而不是向量（embedding）？
-// - 規範文件的用字很固定：「住宿」「發票」「斷電」，關鍵字比對就很準
-// - 不需要額外的 API key 和向量資料庫，結果可以重現、可以寫測試
-// - 檢索只是一個函式：之後要換成 embedding，呼叫端一行都不用改
+// 三種檢索方式（Retriever 介面，見下方）：
+// - BM25：關鍵字比對。規範的用字很固定（住宿、發票、斷電），用字相同時很準，不需要外部服務，結果可以重現
+// - 向量（embedding）：比的是意思，「搭小黃」找得到「計程車」，但需要 embedding 服務
+// - 混合：兩種各排一次名再合併，截長補短。有設定 VOYAGE_API_KEY 時預設用這個
+// 哪一種比較好，不靠感覺：retrieval-eval.ts 用同一組題目比較
 
 export interface Searchable {
   id: string
@@ -79,11 +80,99 @@ export function selectRelevant<T extends Searchable>(
   options: { topK: number; mustInclude?: readonly string[] },
 ): T[] {
   if (docs.length <= options.topK) return [...docs]
+  // 一個詞都沒對到的，就算名額沒滿也不給
+  const ranked = rank(docs, query)
+    .filter((r) => r.score > 0)
+    .map((r) => ({ id: r.doc.id, score: r.score }))
+  return pickRelevant(docs, ranked, options)
+}
 
-  const hits = rank(docs, query)
-    .filter((r) => r.score > 0) // 一個詞都沒對到的，就算名額沒滿也不給
-    .slice(0, options.topK)
-    .map((r) => r.doc.id)
-  const chosen = new Set([...(options.mustInclude ?? []), ...hits])
+// 依排名挑出前 topK 條，加上一定要給的，維持原本的條文順序
+export function pickRelevant<T extends Searchable>(
+  docs: readonly T[],
+  ranked: readonly Ranked[],
+  options: { topK: number; mustInclude?: readonly string[] },
+): T[] {
+  const chosen = new Set([...(options.mustInclude ?? []), ...ranked.slice(0, options.topK).map((r) => r.id)])
   return docs.filter((d) => chosen.has(d.id))
+}
+
+// ===== 檢索方式可以替換：BM25、向量、混合 =====
+// 「檢索」是一個介面，跟審查員一樣：預審與評估只依賴介面，換方法時呼叫端不用改
+
+export interface Ranked {
+  id: string
+  score: number
+}
+
+export interface Retriever {
+  readonly name: string
+  // 由相關到不相關排序；完全不相關的可以不列
+  rank(docs: readonly Searchable[], query: string): Promise<Ranked[]>
+}
+
+// 把文字轉成向量的服務（例如 Voyage AI）；input_type 分 query 與 document，兩者的轉法不同
+export interface Embedder {
+  readonly name: string
+  embed(texts: string[], inputType: 'query' | 'document'): Promise<number[][]>
+}
+
+export const bm25Retriever: Retriever = {
+  name: 'bm25',
+  async rank(docs, query) {
+    return rank(docs, query)
+      .filter((r) => r.score > 0)
+      .map((r) => ({ id: r.doc.id, score: r.score }))
+  },
+}
+
+function cosine(a: number[], b: number[]) {
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!
+    na += a[i]! * a[i]!
+    nb += b[i]! * b[i]!
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1)
+}
+
+// 向量檢索：意思相近就找得到，不需要用字相同
+// 「搭小黃」找得到「計程車」的規定，這是 BM25 做不到的
+export function createVectorRetriever(embedder: Embedder): Retriever {
+  return {
+    name: `vector(${embedder.name})`,
+    async rank(docs, query) {
+      const [docVectors, [queryVector]] = await Promise.all([
+        embedder.embed(
+          docs.map((d) => d.text),
+          'document',
+        ),
+        embedder.embed([query], 'query'),
+      ])
+      return docs
+        .map((d, i) => ({ id: d.id, score: cosine(queryVector!, docVectors[i]!) }))
+        .sort((a, b) => b.score - a.score)
+    },
+  }
+}
+
+// 混合檢索：BM25 與向量各排一次名，用 Reciprocal Rank Fusion 合併
+// RRF 只看名次、不看分數：BM25 的分數與向量的相似度單位不同，直接相加沒有意義，名次就可以比
+// 兩邊都排前面的條文分數最高；只有一邊找到的也有機會進榜，兩種方法互補
+const RRF_K = 60
+export function createHybridRetriever(embedder: Embedder): Retriever {
+  const vector = createVectorRetriever(embedder)
+  return {
+    name: `hybrid(${embedder.name})`,
+    async rank(docs, query) {
+      const [lexical, semantic] = await Promise.all([bm25Retriever.rank(docs, query), vector.rank(docs, query)])
+      const scores = new Map<string, number>()
+      for (const list of [lexical, semantic]) {
+        list.forEach((r, i) => scores.set(r.id, (scores.get(r.id) ?? 0) + 1 / (RRF_K + i + 1)))
+      }
+      return [...scores].map(([id, score]) => ({ id, score })).sort((a, b) => b.score - a.score)
+    },
+  }
 }

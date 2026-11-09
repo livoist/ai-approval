@@ -287,6 +287,19 @@ test('輸入防護：夾帶給 AI 的指令會被移除並標示，個資送給 
   await expect(page.getByText('A123456789')).toBeVisible() // 主管看到的是原文
 })
 
+test('檢索評估：BM25 找得到用字相同的條文，換句話說的找不到', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'manager')
+  await page.getByRole('link', { name: 'AI 調校', exact: true }).click()
+  await page.getByRole('button', { name: '執行檢索評估' }).click()
+
+  // E2E 沒有設定 embedding 服務，只有 BM25 一列
+  const row = page.getByTestId('retrieval-table').getByRole('row', { name: /bm25/ })
+  await expect(row).toContainText('100%')
+  await expect(row).toContainText('0%')
+  await expect(page.getByText('沒有設定 embedding 服務')).toBeVisible()
+})
+
 // 放在最後：採用 sop-3.2 的準則之後，模擬審查員對維修單的判斷會放寬，會影響之後送出的單
 test('AI 調校：主管的理由採用為準則，評估集顯示套用後變好', async ({ page }) => {
   await createAndSubmit(page, '高壓・資料不全')

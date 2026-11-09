@@ -211,3 +211,14 @@ describe('AI 調校 API', () => {
     await request(app).get('/evals/nope').set(asManager).expect(404)
   })
 })
+
+describe('檢索評估 API', () => {
+  it('沒有設定 embedding 時只評估 BM25；申請人 → 403', async () => {
+    const app = createApp(createRequestService(createStore(), mockReviewer))
+    await request(app).post('/evals/retrieval').set(asAlice).expect(403)
+    const res = await request(app).post('/evals/retrieval').set(asManager).expect(200)
+    expect(res.body.embedder).toBe(null)
+    expect(res.body.reports.map((r: { method: string }) => r.method)).toEqual(['bm25'])
+    expect(res.body.reports[0].byType.lexical.recall).toBe(1)
+  })
+})

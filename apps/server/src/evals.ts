@@ -1,6 +1,7 @@
 import type { FormType, FormValues } from '@ai-approval/shared'
 import type { PolicyChunk } from './policies'
 import { buildReviewContext } from './review-context'
+import type { Retriever } from './retrieval'
 import { validateCitations, type Reviewer } from './reviewer'
 import type { Guideline } from './store'
 
@@ -223,14 +224,20 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 
 async function runCase(
   c: EvalCase,
-  options: { reviewer: Reviewer; policiesFor: (type: FormType) => PolicyChunk[]; guidelines: readonly Guideline[]; now: Date },
+  options: {
+    reviewer: Reviewer
+    policiesFor: (type: FormType) => PolicyChunk[]
+    guidelines: readonly Guideline[]
+    now: Date
+    retriever?: Retriever
+  },
 ): Promise<EvalCaseResult> {
-  // 跟真正的預審走同一套準備流程：規則、檢索、相關的準則都一樣
-  const { input, policies } = buildReviewContext(
-    { formType: c.formType, title: c.title, fields: c.fields },
-    { policies: options.policiesFor(c.formType), guidelines: options.guidelines, now: options.now },
-  )
   try {
+    // 跟真正的預審走同一套準備流程：規則、防護、檢索、相關的準則都一樣
+    const { input, policies } = await buildReviewContext(
+      { formType: c.formType, title: c.title, fields: c.fields },
+      { policies: options.policiesFor(c.formType), guidelines: options.guidelines, now: options.now, retriever: options.retriever },
+    )
     const raw = await options.reviewer.review(input, policies, { signal: AbortSignal.timeout(60_000) })
     const output = validateCitations(raw, policies)
     const issues = output.findings.filter((f) => f.kind !== 'ok')
@@ -276,6 +283,7 @@ export async function runEval(options: {
   policiesFor: (type: FormType) => PolicyChunk[]
   guidelines: readonly Guideline[]
   now: Date
+  retriever?: Retriever
   cases?: EvalCase[]
   // 每完成一題就回報一次：用 Claude 時一次評估要一分鐘左右，畫面上要看得到進度
   onProgress?: (done: number, total: number) => void

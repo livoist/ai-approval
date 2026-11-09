@@ -18,6 +18,8 @@ import { computeAiStats } from './ai-stats'
 import { createPolicyLibrary, type PolicyImportInput } from './policies'
 import { runEval } from './evals'
 import { buildReviewContext } from './review-context'
+import { evaluateRetrieval, RETRIEVAL_CASES } from './retrieval-eval'
+import { bm25Retriever, createHybridRetriever, createVectorRetriever, type Embedder, type Retriever } from './retrieval'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
 import type { ApprovalRequest, EvalRun, FindingFeedback, Guideline, Store } from './store'
 
@@ -55,6 +57,10 @@ function riskFromRules(findings: Finding[]): RiskLevel {
 export interface ServiceOptions {
   // 「現在幾點」也從外面傳進來：測試可以固定時間，示範資料可以放在過去幾天
   now?: () => Date
+  // 檢索方式：沒給就用 BM25；設定了 embedding 服務時用混合檢索
+  retriever?: Retriever
+  // embedding 服務：有的話，檢索評估會多比較向量與混合檢索
+  embedder?: Embedder
 }
 
 // 業務邏輯層：只關心「規則」，完全不知道 HTTP、Express 的存在
@@ -248,9 +254,14 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     }
 
     // 準備：規則引擎 → 檢索規範 → 相關的審查準則（跟評估集用同一套流程）
-    const { ruleFindings, guardFindings, guard, policies, input } = buildReviewContext(
+    const { ruleFindings, guardFindings, guard, policies, input } = await buildReviewContext(
       { formType: request.formType as FormType, title: request.title, fields: request.fields },
-      { policies: policyLibrary.forFormType(request.formType as FormType), guidelines: store.listGuidelines(), now: now() },
+      {
+        policies: policyLibrary.forFormType(request.formType as FormType),
+        guidelines: store.listGuidelines(),
+        now: now(),
+        retriever: options.retriever,
+      },
     )
     const retrievedPolicyIds = policies.map((p) => p.id)
     const appliedGuidelineIds = input.guidelines.map((g) => g.id)
@@ -471,6 +482,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
         policiesFor: (type) => policyLibrary.forFormType(type),
         guidelines: store.listGuidelines(),
         now: now(),
+        retriever: options.retriever,
         onProgress: (done, total) => {
           if (evalProgress) Object.assign(evalProgress, { done, total })
         },
@@ -491,6 +503,22 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     }
   }
 
+  // 檢索評估：比較不同檢索方法有沒有把該給 AI 的條文找出來
+  // 只比得了「現在能用的方法」：沒有設定 embedding 服務時只有 BM25
+  async function evaluateRetrievalMethods(user: CurrentUser) {
+    if (!isApproverRole(user.role)) return { ok: false as const, reason: 'forbidden' as const }
+    const { embedder } = options
+    const methods: Retriever[] = embedder
+      ? [bm25Retriever, createVectorRetriever(embedder), createHybridRetriever(embedder)]
+      : [bm25Retriever]
+    const reports = []
+    for (const m of methods) reports.push(await evaluateRetrieval(m))
+    return {
+      ok: true as const,
+      result: { active: (options.retriever ?? bm25Retriever).name, embedder: embedder?.name ?? null, cases: RETRIEVAL_CASES, reports },
+    }
+  }
+
   // 歷次評估的摘要（不含每一題的細節），最新的在前
   function listEvalRuns() {
     return store
@@ -506,6 +534,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     retireGuideline,
     listGuidelines: () => store.listGuidelines(),
     startEval,
+    evaluateRetrievalMethods,
     // 目前這一次評估的進度；沒有在跑就是 running: false
     getEvalProgress: () => (evalProgress ? { running: true as const, ...evalProgress } : { running: false as const }),
     listEvalRuns,

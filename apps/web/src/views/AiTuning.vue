@@ -5,7 +5,15 @@ import { ApiError, api } from '../api'
 import { ERROR_LABEL } from '../labels'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
-import type { EvalCaseResult, EvalProgress, EvalRun, EvalRunSummary, EvalSummary, Guideline } from '../types'
+import type {
+  EvalCaseResult,
+  EvalProgress,
+  EvalRun,
+  EvalRunSummary,
+  EvalSummary,
+  Guideline,
+  RetrievalEvalResult,
+} from '../types'
 
 // AI 調校：把主管的回饋接回 AI，並用評估集驗證有沒有變好
 //
@@ -183,6 +191,25 @@ const usedMock = computed(() => {
 })
 
 const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type).def.title
+
+// ===== 檢索評估 =====
+// 題目固定、跑得很快（BM25 不到一秒；用 embedding 時多幾次 API 呼叫），所以按了直接算，不存紀錄
+const retrieval = ref<RetrievalEvalResult | null>(null)
+const retrievalRunning = ref(false)
+const retrievalCaseCount = computed(() => retrieval.value?.cases.length ?? 16)
+const pct = (n: number) => `${Math.round(n * 100)}%`
+
+async function runRetrievalEval() {
+  retrievalRunning.value = true
+  error.value = null
+  try {
+    retrieval.value = await api.evaluateRetrieval()
+  } catch (e) {
+    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+  } finally {
+    retrievalRunning.value = false
+  }
+}
 </script>
 
 <template>
@@ -389,6 +416,80 @@ const formTitle = (type: Parameters<typeof getFormKind>[0]) => getFormKind(type)
             </li>
           </ul>
         </details>
+      </section>
+
+      <!-- 檢索評估：AI 沒拿到的條文，它不可能引用，所以檢索要先找對 -->
+      <section class="card">
+        <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="font-semibold">檢索評估</h2>
+            <p class="text-xs text-muted">
+              {{ retrievalCaseCount }} 段申請內容，各自有「應該被找到的條文」，比較不同檢索方法能不能把它排進前 3 名。
+              一半是用字相同的題目，一半是換句話說的題目（例如「搭小黃」對「計程車」）。
+            </p>
+          </div>
+          <button type="button" class="btn" :disabled="retrievalRunning" @click="runRetrievalEval">
+            {{ retrievalRunning ? '評估中…' : '執行檢索評估' }}
+          </button>
+        </div>
+
+        <template v-if="retrieval">
+          <p class="mb-3 text-xs text-muted">
+            目前預審使用的檢索：<span class="font-mono">{{ retrieval.active }}</span>
+          </p>
+          <p v-if="!retrieval.embedder" class="mb-3 rounded-lg bg-bg px-3 py-2 text-xs text-muted">
+            沒有設定 embedding 服務（VOYAGE_API_KEY），只能評估 BM25。設定之後，這裡會多比較向量檢索與混合檢索。
+          </p>
+
+          <table class="mb-3 w-full text-right text-sm tabular-nums" data-testid="retrieval-table">
+            <thead class="text-xs text-muted">
+              <tr>
+                <th class="text-left font-normal">方法</th>
+                <th class="font-normal">用字相同</th>
+                <th class="font-normal">換句話說</th>
+                <th class="font-normal">平均倒數名次</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in retrieval.reports" :key="r.method" class="border-t">
+                <td class="py-2 text-left font-mono text-xs">{{ r.method }}</td>
+                <td>{{ pct(r.byType.lexical.recall) }}</td>
+                <td>{{ pct(r.byType.paraphrase.recall) }}</td>
+                <td>{{ r.overall.mrr.toFixed(2) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="mb-3 text-xs text-muted">
+            百分比是「應該被找到的條文排進前 {{ retrieval.reports[0]?.k }} 名」的題目比例；平均倒數名次越接近 1，代表越常排在第一名。
+          </p>
+
+          <details class="text-sm">
+            <summary class="cursor-pointer text-muted">各題結果（數字是應該被找到的條文排第幾名）</summary>
+            <div class="mt-2 overflow-x-auto">
+              <table class="w-full min-w-[36rem] text-xs">
+                <thead class="text-left text-muted">
+                  <tr>
+                    <th class="py-1 font-normal">申請內容</th>
+                    <th class="font-normal">應找到</th>
+                    <th v-for="r in retrieval.reports" :key="r.method" class="font-normal">{{ r.method }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(c, i) in retrieval.cases" :key="c.id" class="border-t">
+                    <td class="py-1.5 pr-3">
+                      {{ c.query }}
+                      <span class="ml-1 text-muted">{{ c.type === 'lexical' ? '用字相同' : '換句話說' }}</span>
+                    </td>
+                    <td class="pr-3 font-mono">{{ c.relevant.join('、') }}</td>
+                    <td v-for="r in retrieval.reports" :key="r.method" :class="r.results[i]!.hit ? 'text-ok' : 'text-danger'">
+                      {{ r.results[i]!.rank ?? '找不到' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </template>
       </section>
     </template>
   </div>

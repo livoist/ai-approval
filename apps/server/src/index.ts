@@ -4,8 +4,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp } from './app'
 import { createClaudeReviewer } from './claude-reviewer'
+import { createVoyageEmbedder, withEmbeddingCache } from './embedder'
 import { createLimitedReviewer, type LimitedReviewer } from './limited-reviewer'
 import { createRequestService } from './request-service'
+import { bm25Retriever, createHybridRetriever } from './retrieval'
 import { createMockReviewer, type Reviewer } from './reviewer'
 import { seedDemoData } from './seed'
 import { createSqliteStore } from './sqlite-store'
@@ -49,7 +51,14 @@ const store = createSqliteStore(DB_PATH)
 const seeded = DEMO ? await seedDemoData(store) : 0
 
 // ===== 組裝 =====
-const service = createRequestService(store, reviewer)
+// ===== 檢索 =====
+// 有 Voyage 的 API key：BM25 + 向量的混合檢索；沒有：只用 BM25，所有功能照常
+const embedder = env.VOYAGE_API_KEY
+  ? withEmbeddingCache(createVoyageEmbedder({ apiKey: env.VOYAGE_API_KEY, model: env.VOYAGE_MODEL ?? 'voyage-4-lite' }))
+  : undefined
+const retriever = embedder ? createHybridRetriever(embedder) : bm25Retriever
+
+const service = createRequestService(store, reviewer, { retriever, embedder })
 const api = createApp(service, {
   meta: () => ({
     demo: DEMO,
@@ -82,6 +91,7 @@ const PORT = Number(env.PORT ?? 3000)
 root.listen(PORT, () => {
   console.log(`伺服器已啟動：http://localhost:${PORT}`)
   console.log(`AI 審查員：${reviewer.name}${limited ? `（每日上限 ${limited.usage().limit} 次）` : ''}`)
+  console.log(`檢索：${retriever.name}`)
   console.log(`資料庫：${DB_PATH}`)
   if (seeded > 0) console.log(`已放入 ${seeded} 張示範申請單`)
   if (resumed > 0) console.log(`接續處理 ${resumed} 張預審中斷的申請單`)

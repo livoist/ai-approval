@@ -14,6 +14,7 @@ import type {
   Guideline,
   PolicyDocSummary,
   PolicyImportPreview,
+  RetrievalEvalResult,
   RequestSummary,
   ReviewStreamEvent,
 } from './types'
@@ -90,6 +91,7 @@ export const api = {
   getEvalRun: (id: string) => call<EvalRun>(`/evals/${id}`),
   startEval: () => call<EvalRun>('/evals', { method: 'POST' }),
   getEvalProgress: () => call<EvalProgress>('/evals/progress'),
+  evaluateRetrieval: () => call<RetrievalEvalResult>('/evals/retrieval', { method: 'POST' }),
   // AI 準確度統計：只有簽核者拿得到，其他人會收到 403
   getAiStats: () => call<AiStats>('/stats/ai'),
   streamReview,

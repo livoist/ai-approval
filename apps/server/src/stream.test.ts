@@ -29,11 +29,15 @@ describe('預審串流', () => {
   it('晚加入的人會先收到已經審出來的意見', async () => {
     // 審出一條之後就停住，等我們放行
     let release!: () => void
+    // 預審前的準備（檢索）是非同步的：等審查員真的送出第一條，才讓「晚加入的人」打開頁面
+    let markEmitted!: () => void
+    const emitted = new Promise<void>((r) => (markEmitted = r))
     const paused: Reviewer = {
       name: 'paused',
       async review(_input, _policies, hooks) {
         const finding = { kind: 'risk' as const, message: '第一條', citations: ['sop-4.3'] }
         hooks?.onFinding?.(finding)
+        markEmitted()
         await new Promise<void>((resolve) => (release = resolve))
         return { riskLevel: 'medium', summary: '', findings: [finding] }
       },
@@ -41,6 +45,7 @@ describe('預審串流', () => {
     const service = createRequestService(createStore(), paused)
     const r = mustCreate(service, alice, COMPLETE_LOW_VOLTAGE)
     service.sendEvent(r.id, 'SUBMIT', alice)
+    await emitted
 
     // 這時候才打開頁面
     const events: ReviewStreamEvent[] = []

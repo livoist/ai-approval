@@ -192,6 +192,16 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
     res.json(service.getEvalProgress())
   })
 
+  // 檢索評估（同樣要寫在 /evals/:id 前面）：題目固定、跑得很快，所以直接算完回傳，不存紀錄
+  app.post('/evals/retrieval', async (req, res) => {
+    const result = await service.evaluateRetrievalMethods(req.user!)
+    if (!result.ok) {
+      res.status(TUNING_STATUS_CODE[result.reason]).json({ error: result.reason })
+      return
+    }
+    res.json(result.result)
+  })
+
   // 中間夾了 requireApprover，Express 的型別推不出 :id，所以明確標註
   app.get('/evals/:id', requireApprover, (req: Request<{ id: string }>, res: Response) => {
     const run = service.getEvalRun(req.params.id)

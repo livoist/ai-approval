@@ -69,12 +69,16 @@ describe('AI 預審流程', () => {
 
   it('預審進行中主管還不能核准，跑完才進入待簽核', async () => {
     // 一個要等我們「放行」才會回傳結果的審查員，用來模擬 AI 思考中
+    // 預審前的準備（檢索）是非同步的，審查員不是一送出就被呼叫：用 started 等它真的開始
     let release!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>((r) => (markStarted = r))
     const slow: Reviewer = {
       name: 'slow',
       review: (input, policies) =>
         new Promise((resolve) => {
           release = () => resolve(mockReviewer.review(input, policies))
+          markStarted()
         }),
     }
     const service = createRequestService(createStore(), slow)
@@ -84,6 +88,8 @@ describe('AI 預審流程', () => {
     // AI 還在想的時候，主管不能核准（還沒輪到他）
     expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({ ok: false })
 
+    await started
+    expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({ ok: false })
     release()
     await service.waitForReview(r.id)
     expect(service.getRequest(r.id)?.status).toBe('pending_approval')

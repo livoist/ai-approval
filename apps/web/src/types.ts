@@ -189,3 +189,24 @@ export type EvalRunSummary = Omit<EvalRun, 'report'> & { baseline: EvalSummary; 
 export type EvalProgress =
   | { running: false }
   | { running: true; done: number; total: number; startedAt: string; startedBy: string }
+
+// 檢索評估（跟 apps/server/src/retrieval-eval.ts 一致）
+export interface RetrievalMetrics {
+  recall: number
+  mrr: number
+}
+
+export interface RetrievalReport {
+  method: string
+  k: number
+  overall: RetrievalMetrics
+  byType: { lexical: RetrievalMetrics; paraphrase: RetrievalMetrics }
+  results: { caseId: string; rank: number | null; hit: boolean }[]
+}
+
+export interface RetrievalEvalResult {
+  active: string // 目前預審用的檢索方式
+  embedder: string | null
+  cases: { id: string; formType: FormType; query: string; relevant: string[]; type: 'lexical' | 'paraphrase' }[]
+  reports: RetrievalReport[]
+}
