@@ -32,6 +32,23 @@ describe('檢索評估', () => {
     expect(report.byType.paraphrase.recall).toBe(0)
   })
 
+  it('記下排第一的條文，以及實際預審時 AI 拿不拿得到', async () => {
+    const report = await evaluateRetrieval(bm25Retriever)
+    const result = (id: string) => report.results[RETRIEVAL_CASES.findIndex((c) => c.id === id)]!
+    expect(report.givenK).toBe(10)
+
+    // 答對：排第一的就是答案
+    expect(result('lx-hsr')).toMatchObject({ rank: 1, hit: true, given: true, top: 'trv-3' })
+
+    // 報銷單的候選條文超過 10 條，BM25 找不到就交不到 AI 手上
+    expect(corpusFor('expense').length).toBeGreaterThan(10)
+    expect(result('pp-overnight')).toMatchObject({ rank: null, hit: false, given: false })
+
+    // 維修單的條文不超過 10 條，預審時全部都給，不管排第幾名 AI 都拿得到
+    expect(corpusFor('maintenance').length).toBeLessThanOrEqual(10)
+    expect(result('pp-lock')).toMatchObject({ hit: false, given: true })
+  })
+
   it('向量檢索找得到換句話說的條文；混合檢索兩種都顧到', async () => {
     const cases = RETRIEVAL_CASES.filter((c) => ['lx-hsr', 'pp-taxi'].includes(c.id))
     const bm25 = await evaluateRetrieval(bm25Retriever, { cases })

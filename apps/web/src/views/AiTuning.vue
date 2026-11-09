@@ -196,8 +196,26 @@ const retrievalRunning = ref(false)
 const retrievalCaseCount = computed(() => retrieval.value?.cases.length ?? 16)
 const pct = (n: number) => `${Math.round(n * 100)}%`
 
+// 各題結果裡，點條文編號看全文
+// source：從哪裡點的（「應找到」或某個方法的「排第一」）。同一條可能出現在好幾個地方，要標出點的是哪一個
+const openArticle = ref<{ caseId: string; articleId: string; source: string } | null>(null)
+const isOpen = (caseId: string, articleId: string, source: string) =>
+  openArticle.value?.caseId === caseId && openArticle.value.articleId === articleId && openArticle.value.source === source
+
+function toggleArticle(caseId: string, articleId: string, source: string) {
+  openArticle.value = isOpen(caseId, articleId, source) ? null : { caseId, articleId, source }
+}
+
+// Esc 關閉
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') openArticle.value = null
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
 async function runRetrievalEval() {
   retrievalRunning.value = true
+  openArticle.value = null
   try {
     retrieval.value = await api.evaluateRetrieval()
   } catch (e) {
@@ -420,7 +438,7 @@ async function runRetrievalEval() {
             <h2 class="font-semibold">檢索評估</h2>
             <p class="text-xs text-muted">
               {{ retrievalCaseCount }} 段申請內容，各自有「應該被找到的條文」，比較不同檢索方法能不能把它排進前 3 名。
-              一半是用字相同的題目，一半是換句話說的題目（例如「搭小黃」對「計程車」）。
+              一半是用字相同的題目，一半是換句話說的題目（例如「想在當地過夜」對「住宿」）。
             </p>
           </div>
           <button type="button" class="btn" :disabled="retrievalRunning" @click="runRetrievalEval">
@@ -452,6 +470,7 @@ async function runRetrievalEval() {
                 <th class="font-normal">用字相同</th>
                 <th class="font-normal">換句話說</th>
                 <th class="font-normal">平均倒數名次</th>
+                <th class="font-normal">交給 AI（前 {{ retrieval.reports[0]?.givenK }} 名）</th>
               </tr>
             </thead>
             <tbody>
@@ -460,15 +479,18 @@ async function runRetrievalEval() {
                 <td>{{ pct(r.byType.lexical.recall) }}</td>
                 <td>{{ pct(r.byType.paraphrase.recall) }}</td>
                 <td>{{ r.overall.mrr.toFixed(2) }}</td>
+                <td>{{ pct(r.overall.given) }}</td>
               </tr>
             </tbody>
           </table>
           <p class="mb-3 text-xs text-muted">
-            百分比是「應該被找到的條文排進前 {{ retrieval.reports[0]?.k }} 名」的題目比例；平均倒數名次越接近 1，代表越常排在第一名。
+            「用字相同」「換句話說」是應該被找到的條文排進前 {{ retrieval.reports[0]?.k }} 名的題目比例，看排序準不準；
+            平均倒數名次越接近 1，代表越常排在第一名；
+            「交給 AI」是實際預審時 AI 拿得到這條的比例：預審會給 AI 前 {{ retrieval.reports[0]?.givenK }} 條，條文不多時全部都給。
           </p>
 
           <details class="text-sm">
-            <summary class="cursor-pointer text-muted">各題結果（數字是應該被找到的條文排第幾名）</summary>
+            <summary class="cursor-pointer text-muted">各題結果（數字是應該被找到的條文排第幾名；點條文編號看全文）</summary>
             <div class="mt-2 overflow-x-auto">
               <table class="w-full min-w-[36rem] text-xs">
                 <thead class="text-left text-muted">
@@ -479,16 +501,73 @@ async function runRetrievalEval() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(c, i) in retrieval.cases" :key="c.id" class="border-t">
-                    <td class="py-1.5 pr-3">
-                      {{ c.query }}
-                      <span class="ml-1 text-muted">{{ c.type === 'lexical' ? '用字相同' : '換句話說' }}</span>
-                    </td>
-                    <td class="pr-3 font-mono">{{ c.relevant.join('、') }}</td>
-                    <td v-for="r in retrieval.reports" :key="r.method" :class="r.results[i]!.hit ? 'text-ok' : 'text-danger'">
-                      {{ r.results[i]!.rank ?? '找不到' }}
-                    </td>
-                  </tr>
+                  <template v-for="(c, i) in retrieval.cases" :key="c.id">
+                    <!-- 正在看這一題的條文：整列加底色，對照題目、答案與各方法的名次 -->
+                    <tr
+                      class="border-t align-top transition-colors"
+                      :class="{ 'bg-accent-soft/60': openArticle?.caseId === c.id }"
+                      data-testid="retrieval-case"
+                      :data-open="openArticle?.caseId === c.id"
+                    >
+                      <td class="py-1.5 pr-3">
+                        {{ c.query }}
+                        <span class="ml-1 text-muted">{{ c.type === 'lexical' ? '用字相同' : '換句話說' }}</span>
+                      </td>
+                      <td class="py-1.5 pr-3">
+                        <button
+                          v-for="id in c.relevant"
+                          :key="id"
+                          type="button"
+                          class="cursor-pointer rounded px-1 font-mono underline decoration-dotted underline-offset-2 hover:bg-bg"
+                          :class="{ '!bg-accent text-white no-underline': isOpen(c.id, id, 'relevant') }"
+                          :aria-expanded="isOpen(c.id, id, 'relevant')"
+                          :aria-label="`條文 ${id}`"
+                          data-testid="article-chip"
+                          @click="toggleArticle(c.id, id, 'relevant')"
+                        >
+                          {{ id }}
+                        </button>
+                      </td>
+                      <td v-for="r in retrieval.reports" :key="r.method" class="py-1.5">
+                        <span :class="r.results[i]!.hit ? 'text-ok' : 'text-danger'">{{ r.results[i]!.rank ?? '找不到' }}</span>
+                        <!-- 答錯時：是哪一條排在第一？看得到才知道為什麼錯 -->
+                        <span v-if="!r.results[i]!.hit && r.results[i]!.top" class="mt-0.5 flex items-center gap-1 text-muted">
+                          第一
+                          <button
+                            type="button"
+                            class="cursor-pointer rounded px-1 font-mono underline decoration-dotted underline-offset-2 hover:bg-bg"
+                            :class="{ '!bg-accent text-white no-underline': isOpen(c.id, r.results[i]!.top!, r.method) }"
+                            :aria-expanded="isOpen(c.id, r.results[i]!.top!, r.method)"
+                            :aria-label="`${r.method} 排第一的條文 ${r.results[i]!.top}`"
+                            data-testid="top-chip"
+                            @click="toggleArticle(c.id, r.results[i]!.top!, r.method)"
+                          >
+                            {{ r.results[i]!.top }}
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                    <!-- 條文全文：展開在這一題的正下方，表格位置不會跳；手機上一樣適用 -->
+                    <tr v-if="openArticle?.caseId === c.id" class="bg-accent-soft/60" data-testid="article-panel">
+                      <td :colspan="2 + retrieval.reports.length" class="px-3 pb-3">
+                        <div class="rounded-lg border bg-surface px-3 py-2">
+                          <div class="mb-1 flex items-start justify-between gap-3">
+                            <p class="text-muted">
+                              <span class="font-mono text-ink">{{ openArticle.articleId }}</span>
+                              <template v-if="retrieval.articles[openArticle.articleId]">
+                                · {{ retrieval.articles[openArticle.articleId]!.docTitle }}
+                              </template>
+                              · {{ openArticle.source === 'relevant' ? '應該被找到的條文' : `${openArticle.source} 排第一的條文` }}
+                            </p>
+                            <button type="button" class="text-muted hover:text-ink" aria-label="關閉條文" @click="openArticle = null">✕</button>
+                          </div>
+                          <p class="text-sm leading-relaxed">
+                            {{ retrieval.articles[openArticle.articleId]?.text ?? '找不到這條條文的內容' }}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
                 </tbody>
               </table>
             </div>

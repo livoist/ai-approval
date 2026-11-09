@@ -1,6 +1,7 @@
 import type { FormType } from '@ai-approval/shared'
 import { policiesFor, type PolicyChunk } from './policies'
 import type { Retriever } from './retrieval'
+import { POLICY_TOP_K } from './review-context'
 
 // 檢索評估：檢索有沒有把「該給 AI 的條文」找出來
 //
@@ -9,7 +10,8 @@ import type { Retriever } from './retrieval'
 //
 // 題目分兩種：
 // - 用字相同（lexical）：申請內容裡直接出現規範的用字，BM25 的強項
-// - 換句話說（paraphrase）：意思一樣但用字不同，例如「搭小黃」對「計程車」，向量檢索的強項
+// - 換句話說（paraphrase）：意思一樣但用字不同，例如「想在當地過夜」對「住宿」，向量檢索的強項
+//   「搭小黃」對「計程車」這題目前連向量都找不到：embedding 模型不一定懂台灣的俗稱，留著當作已知的弱點
 // 兩種都放，才看得出混合檢索是不是真的截長補短
 
 // 範例 PDF「國內出差管理辦法」匯入後的條文（代碼 trv），讓題目涵蓋多份文件
@@ -57,16 +59,20 @@ export interface RetrievalCaseResult {
   caseId: string
   rank: number | null // 第一條相關條文排第幾名（從 1 開始）；沒找到是 null
   hit: boolean // 有沒有出現在前 k 名
+  given: boolean // 實際預審時 AI 拿不拿得到：排在前 POLICY_TOP_K 名，或條文本來就不多、全部都給
+  top: string | null // 排第一名的條文：答錯時用來看「是被哪一條擠下去的」
 }
 
 export interface RetrievalMetrics {
   recall: number // 前 k 名找到相關條文的比例
+  given: number // 實際預審時，AI 拿得到相關條文的比例
   mrr: number // 平均倒數名次：第 1 名得 1 分、第 2 名 0.5 分…，越前面越好
 }
 
 export interface RetrievalReport {
   method: string
   k: number
+  givenK: number // 實際預審交給 AI 的條數
   overall: RetrievalMetrics
   byType: Record<RetrievalCase['type'], RetrievalMetrics>
   results: RetrievalCaseResult[]
@@ -78,9 +84,10 @@ export function corpusFor(type: FormType): PolicyChunk[] {
 }
 
 function metrics(results: RetrievalCaseResult[]): RetrievalMetrics {
-  if (results.length === 0) return { recall: 0, mrr: 0 }
+  if (results.length === 0) return { recall: 0, given: 0, mrr: 0 }
   return {
     recall: results.filter((r) => r.hit).length / results.length,
+    given: results.filter((r) => r.given).length / results.length,
     mrr: results.reduce((sum, r) => sum + (r.rank ? 1 / r.rank : 0), 0) / results.length,
   }
 }
@@ -93,15 +100,24 @@ export async function evaluateRetrieval(
   const cases = options.cases ?? RETRIEVAL_CASES
   const results: RetrievalCaseResult[] = []
   for (const c of cases) {
-    const ranked = await retriever.rank(corpusFor(c.formType), c.query)
+    const corpus = corpusFor(c.formType)
+    const ranked = await retriever.rank(corpus, c.query)
     const index = ranked.findIndex((r) => c.relevant.includes(r.id))
     const rank = index === -1 ? null : index + 1
-    results.push({ caseId: c.id, rank, hit: rank !== null && rank <= k })
+    results.push({
+      caseId: c.id,
+      rank,
+      hit: rank !== null && rank <= k,
+      // 跟 review-context 的規則一致：條文不超過 POLICY_TOP_K 條時全部交給 AI，不經過檢索
+      given: corpus.length <= POLICY_TOP_K || (rank !== null && rank <= POLICY_TOP_K),
+      top: ranked[0]?.id ?? null,
+    })
   }
   const of = (type: RetrievalCase['type']) => results.filter((_, i) => cases[i]!.type === type)
   return {
     method: retriever.name,
     k,
+    givenK: POLICY_TOP_K,
     overall: metrics(results),
     byType: { lexical: metrics(of('lexical')), paraphrase: metrics(of('paraphrase')) },
     results,

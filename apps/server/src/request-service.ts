@@ -19,7 +19,7 @@ import { createPolicyLibrary, type PolicyImportInput } from './policies'
 import { runEval } from './evals'
 import { buildReviewContext } from './review-context'
 import { withQueryPrefetch } from './embedder'
-import { evaluateRetrieval, RETRIEVAL_CASES, type RetrievalReport } from './retrieval-eval'
+import { corpusFor, evaluateRetrieval, RETRIEVAL_CASES, type RetrievalReport } from './retrieval-eval'
 import { bm25Retriever, createHybridRetriever, createVectorRetriever, type Embedder, type Retriever } from './retrieval'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
 import type { ApprovalRequest, EvalRun, FindingFeedback, Guideline, Store } from './store'
@@ -533,7 +533,20 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     }
     return {
       ok: true as const,
-      result: { active: (options.retriever ?? bm25Retriever).name, embedder: embedder?.name ?? null, cases: RETRIEVAL_CASES, reports, errors },
+      result: {
+        active: (options.retriever ?? bm25Retriever).name,
+        embedder: embedder?.name ?? null,
+        cases: RETRIEVAL_CASES,
+        reports,
+        errors,
+        // 題目會用到的所有條文：畫面上點條文編號時顯示全文
+        // 出差辦法是評估專用的，不在規範庫裡，所以由這裡一起回傳
+        articles: Object.fromEntries(
+          [...new Set(RETRIEVAL_CASES.map((c) => c.formType))]
+            .flatMap((type) => corpusFor(type))
+            .map(({ id, docTitle, section, text }) => [id, { docTitle, section, text }]),
+        ),
+      },
     }
   }
 

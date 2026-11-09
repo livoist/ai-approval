@@ -6,8 +6,10 @@
 //
 // 三種檢索方式（Retriever 介面，見下方）：
 // - BM25：關鍵字比對。規範的用字很固定（住宿、發票、斷電），用字相同時很準，不需要外部服務，結果可以重現
-// - 向量（embedding）：比的是意思，「搭小黃」找得到「計程車」，但需要 embedding 服務
-// - 混合：兩種各排一次名再合併，截長補短。有設定 VOYAGE_API_KEY 時預設用這個
+// - 向量（embedding）：比的是意思，「想在當地過夜」找得到「住宿」的規定，但需要 embedding 服務
+//   不是萬能：「搭小黃」就找不到「計程車」，embedding 模型不一定懂地方俗稱
+// - 混合：兩種各排一次名再合併。理論上截長補短，但評估結果是 BM25 會把「剛好有共同字詞」的條文加分，
+//   反而把向量找對的條文往後擠；所以有設定 VOYAGE_API_KEY 時預設用向量，混合保留在評估裡比較
 // 哪一種比較好，不靠感覺：retrieval-eval.ts 用同一組題目比較
 
 export interface Searchable {
@@ -139,7 +141,7 @@ function cosine(a: number[], b: number[]) {
 }
 
 // 向量檢索：意思相近就找得到，不需要用字相同
-// 「搭小黃」找得到「計程車」的規定，這是 BM25 做不到的
+// 「想在當地過夜」找得到「住宿」的規定，這是 BM25 做不到的
 export function createVectorRetriever(embedder: Embedder): Retriever {
   return {
     name: `vector(${embedder.name})`,
@@ -161,6 +163,9 @@ export function createVectorRetriever(embedder: Embedder): Retriever {
 // 混合檢索：BM25 與向量各排一次名，用 Reciprocal Rank Fusion 合併
 // RRF 只看名次、不看分數：BM25 的分數與向量的相似度單位不同，直接相加沒有意義，名次就可以比
 // 兩邊都排前面的條文分數最高；只有一邊找到的也有機會進榜，兩種方法互補
+// 已知的弱點：BM25 只列出有共同字詞的條文，沒列到的在這一邊得 0 分
+// 所以只要跟申請內容「剛好有一兩個字一樣」，就會比 BM25 沒列到、但向量排很前面的正確條文多拿分
+// RRF_K = 60 時名次之間的分數差很小，「有沒有被列到」的差距反而最大；調權重也蓋不過這個落差
 const RRF_K = 60
 export function createHybridRetriever(embedder: Embedder): Retriever {
   const vector = createVectorRetriever(embedder)

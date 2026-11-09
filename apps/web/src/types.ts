@@ -192,16 +192,18 @@ export type EvalProgress =
 
 // 檢索評估（跟 apps/server/src/retrieval-eval.ts 一致）
 export interface RetrievalMetrics {
-  recall: number
+  recall: number // 前 k 名的命中率
+  given: number // 實際預審時 AI 拿得到相關條文的比例（前 givenK 名）
   mrr: number
 }
 
 export interface RetrievalReport {
   method: string
   k: number
+  givenK: number
   overall: RetrievalMetrics
   byType: { lexical: RetrievalMetrics; paraphrase: RetrievalMetrics }
-  results: { caseId: string; rank: number | null; hit: boolean }[]
+  results: { caseId: string; rank: number | null; hit: boolean; given: boolean; top: string | null }[]
 }
 
 export interface RetrievalEvalResult {
@@ -210,4 +212,5 @@ export interface RetrievalEvalResult {
   cases: { id: string; formType: FormType; query: string; relevant: string[]; type: 'lexical' | 'paraphrase' }[]
   reports: RetrievalReport[]
   errors: { method: string; message: string }[] // 執行失敗的方法（例如 embedding 服務連不上）
+  articles: Record<string, { docTitle: string; section: string; text: string }> // 題目會用到的條文全文
 }

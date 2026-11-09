@@ -222,6 +222,9 @@ describe('檢索評估 API', () => {
     expect(res.body.reports.map((r: { method: string }) => r.method)).toEqual(['bm25'])
     expect(res.body.reports[0].byType.lexical.recall).toBe(1)
     expect(res.body.errors).toEqual([])
+    // 畫面上點條文編號要顯示全文：評估專用的出差辦法也要一起回傳
+    expect(res.body.articles['trv-3'].text).toContain('高鐵')
+    expect(res.body.articles['sop-4.3'].docTitle).toBeTruthy()
   })
 
   it('embedding 服務失敗：不是整個 500，BM25 照樣有結果，失敗的方法列在 errors', async () => {

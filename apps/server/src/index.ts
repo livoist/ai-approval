@@ -7,7 +7,7 @@ import { createClaudeReviewer } from './claude-reviewer'
 import { createVoyageEmbedder, withEmbeddingCache } from './embedder'
 import { createLimitedReviewer, type LimitedReviewer } from './limited-reviewer'
 import { createRequestService } from './request-service'
-import { bm25Retriever, createHybridRetriever } from './retrieval'
+import { bm25Retriever, createHybridRetriever, createVectorRetriever } from './retrieval'
 import { createMockReviewer, type Reviewer } from './reviewer'
 import { seedDemoData } from './seed'
 import { createSqliteStore } from './sqlite-store'
@@ -52,11 +52,18 @@ const seeded = DEMO ? await seedDemoData(store) : 0
 
 // ===== 組裝 =====
 // ===== 檢索 =====
-// 有 Voyage 的 API key：BM25 + 向量的混合檢索；沒有：只用 BM25，所有功能照常
+// 沒有 Voyage 的 API key：只用 BM25，所有功能照常
+// 有的話預設用向量檢索：檢索評估裡，向量在每一題的名次都不輸混合檢索（見 README「檢索」一節）
+// RETRIEVAL_METHOD=hybrid 可以改回 BM25 + 向量的混合檢索
+// 不管哪一種，embedding 服務出錯時，單次預審都會退回 BM25（review-context.ts）
 const embedder = env.VOYAGE_API_KEY
   ? withEmbeddingCache(createVoyageEmbedder({ apiKey: env.VOYAGE_API_KEY, model: env.VOYAGE_MODEL ?? 'voyage-4-lite' }))
   : undefined
-const retriever = embedder ? createHybridRetriever(embedder) : bm25Retriever
+const retriever = !embedder
+  ? bm25Retriever
+  : env.RETRIEVAL_METHOD === 'hybrid'
+    ? createHybridRetriever(embedder)
+    : createVectorRetriever(embedder)
 
 const service = createRequestService(store, reviewer, { retriever, embedder })
 const api = createApp(service, {

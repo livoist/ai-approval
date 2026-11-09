@@ -298,6 +298,23 @@ test('檢索評估：BM25 找得到用字相同的條文，換句話說的找不
   await expect(row).toContainText('100%')
   await expect(row).toContainText('0%')
   await expect(page.getByText('沒有設定 embedding 服務')).toBeVisible()
+
+  // 點條文編號：在這一題下方顯示全文，這一列標示為正在看
+  await page.getByText('各題結果').click()
+  const firstCase = page.getByTestId('retrieval-case').first()
+  await firstCase.getByRole('button', { name: '條文 trv-3' }).click()
+  await expect(page.getByTestId('article-panel')).toContainText('高鐵以標準車廂為限')
+  await expect(firstCase).toHaveAttribute('data-open', 'true')
+
+  // 答錯的題目顯示排第一的條文：BM25 把「搭小黃」對到膳雜費的條文
+  const taxi = page.getByTestId('retrieval-case').filter({ hasText: '搭小黃' })
+  await taxi.getByTestId('top-chip').click()
+  await expect(page.getByTestId('article-panel')).toContainText('膳雜費')
+  await expect(page.getByTestId('retrieval-case').filter({ hasText: '台北新竹' })).toHaveAttribute('data-open', 'false')
+
+  // Esc 關閉
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('article-panel')).toHaveCount(0)
 })
 
 test('錯誤提示：伺服器出錯時右上角顯示提示與錯誤編號；連不上伺服器時說明原因', async ({ page }) => {
