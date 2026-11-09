@@ -26,6 +26,9 @@ export const EVENT_LABEL: Record<AuditAction, string> = {
 }
 
 export const ERROR_LABEL: Record<string, string> = {
+  internal: '系統發生錯誤，請稍後再試。如果一直發生，請提供下方的錯誤編號',
+  network: '無法連線到伺服器，請確認網路連線，或稍後再試',
+  bad_request: '送出的資料格式不正確，請重新整理頁面後再試',
   forbidden: '你沒有權限執行這個動作',
   invalid_transition: '這張申請單目前的狀態不能執行這個動作',
   not_found: '找不到這張申請單',

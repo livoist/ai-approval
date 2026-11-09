@@ -2,8 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { format } from 'echarts/core'
 import { getFormKind, isApproverRole, isFormType } from '@ai-approval/shared'
-import { ApiError, api } from '../api'
-import { ERROR_LABEL } from '../labels'
+import { api } from '../api'
+import { errorMessage, isValidationError, loadErrorMessage, notifyError } from '../notify'
 import EChart from '../components/EChart.vue'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
@@ -24,8 +24,8 @@ async function load() {
   error.value = null
   try {
     stats.value = await api.getAiStats()
-  } catch {
-    error.value = '無法載入統計資料，請確認後端伺服器是否啟動。'
+  } catch (e) {
+    error.value = loadErrorMessage('統計資料', e)
   } finally {
     loading.value = false
   }
@@ -190,7 +190,9 @@ async function adopt(item: IncorrectItem) {
     adopting.value = null
     stats.value = await api.getAiStats()
   } catch (e) {
-    adoptError.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    // 準則內容不符合規定：標在輸入框下面；其他錯誤用提示
+    if (isValidationError(e)) adoptError.value = errorMessage(e)
+    else notifyError(e)
   } finally {
     adoptBusy.value = false
   }

@@ -26,6 +26,8 @@ export class ApiError extends Error {
     public reason: string,
     // 表單驗證失敗時，後端會回傳每個欄位的錯誤訊息
     public fieldErrors: Record<string, string> = {},
+    // 伺服器沒預料到的錯誤（500）會附上錯誤編號，log 裡用同一個編號記下完整內容
+    public requestId?: string,
   ) {
     super(`${status} ${reason}`)
   }
@@ -37,12 +39,20 @@ function authHeaders() {
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
-  })
+  let res: Response
+  try {
+    res = await fetch(`/api${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
+    })
+  } catch (e) {
+    // 連不到伺服器（斷網、伺服器重啟中）：fetch 丟的是瀏覽器的錯誤，轉成跟其他錯誤一樣的格式
+    // 我們自己取消的請求（AbortController）不算，照原樣丟出去
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
+    throw new ApiError(0, 'network')
+  }
   const body = await res.json().catch(() => null)
-  if (!res.ok) throw new ApiError(res.status, body?.error ?? 'unknown', body?.fieldErrors)
+  if (!res.ok) throw new ApiError(res.status, body?.error ?? 'unknown', body?.fieldErrors, body?.requestId)
   return body as T
 }
 

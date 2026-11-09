@@ -300,6 +300,31 @@ test('檢索評估：BM25 找得到用字相同的條文，換句話說的找不
   await expect(page.getByText('沒有設定 embedding 服務')).toBeVisible()
 })
 
+test('錯誤提示：伺服器出錯時右上角顯示提示與錯誤編號；連不上伺服器時說明原因', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'manager')
+  await page.getByRole('link', { name: 'AI 調校', exact: true }).click()
+
+  // 模擬伺服器沒預料到的錯誤：攔下這個 API，回傳跟後端一樣格式的 500
+  await page.route('**/api/evals/retrieval', (route) =>
+    route.fulfill({ status: 500, json: { error: 'internal', requestId: 'abcd1234' } }),
+  )
+  await page.getByRole('button', { name: '執行檢索評估' }).click()
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('系統發生錯誤')
+  await expect(toast).toContainText('錯誤編號 abcd1234')
+
+  // 帶錯誤編號的提示不會自己消失，按關閉才消失
+  await toast.getByRole('button', { name: '關閉提示' }).click()
+  await expect(toast).toHaveCount(0)
+
+  // 模擬連不上伺服器
+  await page.unroute('**/api/evals/retrieval')
+  await page.route('**/api/evals/retrieval', (route) => route.abort())
+  await page.getByRole('button', { name: '執行檢索評估' }).click()
+  await expect(page.getByTestId('toast')).toContainText('無法連線到伺服器')
+})
+
 // 放在最後：採用 sop-3.2 的準則之後，模擬審查員對維修單的判斷會放寬，會影響之後送出的單
 test('AI 調校：主管的理由採用為準則，評估集顯示套用後變好', async ({ page }) => {
   await createAndSubmit(page, '高壓・資料不全')

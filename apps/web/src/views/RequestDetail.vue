@@ -15,7 +15,8 @@ import PolicyPanel from '../components/PolicyPanel.vue'
 import RequestForm from '../components/RequestForm.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { ERROR_LABEL, EVENT_LABEL } from '../labels'
+import { EVENT_LABEL } from '../labels'
+import { loadErrorMessage, notify, notifyError } from '../notify'
 import { formatDateTime } from '../time'
 import { refreshMeta } from '../meta'
 import { currentUser } from '../session'
@@ -27,7 +28,6 @@ const request = ref<RequestDetail | null>(null)
 const policies = ref<PolicyChunk[]>([])
 const activeCitation = ref<string | null>(null)
 const busy = ref(false)
-const error = ref<string | null>(null)
 
 const reviewing = computed(() => request.value?.status === 'reviewing')
 
@@ -64,7 +64,7 @@ function startStream() {
     )
     .catch(() => {
       // 我們自己 abort 的不算錯誤；其他的才是真的斷線
-      if (!controller.signal.aborted) error.value = '即時連線中斷，請重新整理頁面'
+      if (!controller.signal.aborted) notify('error', '即時連線中斷，請重新整理頁面')
     })
 }
 
@@ -75,13 +75,12 @@ function stopStream() {
 
 async function send(event: RequestEvent) {
   busy.value = true
-  error.value = null
   try {
     await api.sendEvent(props.id, event)
     await load()
     if (reviewing.value) startStream()
   } catch (e) {
-    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    notifyError(e)
   } finally {
     busy.value = false
   }
@@ -94,12 +93,11 @@ async function giveFeedback(index: number, verdict: 'correct' | 'incorrect', not
   const review = request.value?.review
   if (!review) return
   feedbackBusy.value = true
-  error.value = null
   try {
     await api.giveFeedback(props.id, review.id, index, { verdict, note })
     await load()
   } catch (e) {
-    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    notifyError(e)
   } finally {
     feedbackBusy.value = false
   }
@@ -135,19 +133,14 @@ const fieldErrors = ref<Record<string, string>>({})
 
 async function save(title: string, fields: FormValues) {
   busy.value = true
-  error.value = null
   fieldErrors.value = {}
   try {
     await api.updateRequest(props.id, { title, fields })
     await load()
     editing.value = false
   } catch (e) {
-    if (e instanceof ApiError) {
-      fieldErrors.value = e.fieldErrors
-      error.value = ERROR_LABEL[e.reason] ?? e.message
-    } else {
-      error.value = String(e)
-    }
+    if (e instanceof ApiError) fieldErrors.value = e.fieldErrors
+    notifyError(e)
   } finally {
     busy.value = false
   }
@@ -166,7 +159,7 @@ onMounted(async () => {
     loadError.value =
       e instanceof ApiError && e.reason === 'not_found'
         ? '找不到這張申請單，可能網址有誤。'
-        : '無法載入申請單，請確認後端伺服器是否啟動。'
+        : loadErrorMessage('申請單', e)
   }
 })
 // 離開頁面一定要關掉連線，不然後端會一直以為有人在看
@@ -248,7 +241,6 @@ onUnmounted(stopStream)
           />
           <button v-if="canEdit" class="btn" :disabled="busy" @click="editing = true">修改內容</button>
         </div>
-        <p v-if="error" class="mt-3 text-sm text-danger">{{ error }}</p>
       </section>
 
       <ReviewPanel

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { FORM_TYPES, getFormKind, isApproverRole, type FormType } from '@ai-approval/shared'
 import { ApiError, api } from '../api'
-import { ERROR_LABEL } from '../labels'
+import { loadErrorMessage, notifyError } from '../notify'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
 import type { ArticleDraft, PolicyDocSummary } from '../types'
@@ -24,8 +24,8 @@ async function load() {
   loadError.value = null
   try {
     docs.value = await api.listPolicyDocs()
-  } catch {
-    loadError.value = '無法載入規範文件，請確認後端伺服器是否啟動。'
+  } catch (e) {
+    loadError.value = loadErrorMessage('規範文件', e)
   } finally {
     loading.value = false
   }
@@ -39,11 +39,9 @@ const docsByType = computed(() => FORM_TYPES.map((type) => ({ type, docs: docs.v
 const formType = ref<FormType>('expense')
 const file = ref<File | null>(null)
 const parsing = ref(false)
-const error = ref<string | null>(null)
 
 function onFileChange(e: Event) {
   file.value = (e.target as HTMLInputElement).files?.[0] ?? null
-  error.value = null
 }
 
 // 第二步：確認切好的條文（null 表示還在第一步）
@@ -62,7 +60,6 @@ const saved = ref<PolicyDocSummary | null>(null)
 async function parse() {
   if (!file.value) return
   parsing.value = true
-  error.value = null
   saved.value = null
   try {
     const preview = await api.previewPolicyPdf(file.value)
@@ -74,7 +71,7 @@ async function parse() {
     }
     fieldErrors.value = {}
   } catch (e) {
-    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    notifyError(e)
   } finally {
     parsing.value = false
   }
@@ -88,13 +85,11 @@ function removeArticle(key: number) {
 function cancel() {
   draft.value = null
   fieldErrors.value = {}
-  error.value = null
 }
 
 async function save() {
   if (!draft.value) return
   saving.value = true
-  error.value = null
   fieldErrors.value = {}
   try {
     saved.value = await api.importPolicyDoc({
@@ -108,12 +103,8 @@ async function save() {
     file.value = null
     await load()
   } catch (e) {
-    if (e instanceof ApiError) {
-      fieldErrors.value = e.fieldErrors
-      error.value = ERROR_LABEL[e.reason] ?? e.message
-    } else {
-      error.value = String(e)
-    }
+    if (e instanceof ApiError) fieldErrors.value = e.fieldErrors
+    notifyError(e)
   } finally {
     saving.value = false
   }
@@ -258,7 +249,6 @@ async function save() {
           </div>
         </form>
 
-        <p v-if="error" class="mt-3 text-sm text-danger">{{ error }}</p>
       </section>
 
       <section v-else class="card text-sm text-muted">只有簽核者可以匯入規範文件。</section>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getFormKind, isApproverRole } from '@ai-approval/shared'
-import { ApiError, api } from '../api'
-import { ERROR_LABEL } from '../labels'
+import { api } from '../api'
+import { loadErrorMessage, notifyError } from '../notify'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
 import type {
@@ -38,8 +38,8 @@ async function load() {
     ;[guidelines.value, runs.value] = await Promise.all([api.listGuidelines(), api.listEvalRuns()])
     // 預設打開最近一次評估
     if (runs.value[0] && selected.value?.id !== runs.value[0].id) selected.value = await api.getEvalRun(runs.value[0].id)
-  } catch {
-    loadError.value = '無法載入資料，請確認後端伺服器是否啟動。'
+  } catch (e) {
+    loadError.value = loadErrorMessage('資料', e)
   } finally {
     loading.value = false
   }
@@ -60,16 +60,14 @@ onBeforeUnmount(stopPolling)
 
 // ===== 準則 =====
 const retiring = ref<string | null>(null)
-const error = ref<string | null>(null)
 
 async function retire(g: Guideline) {
   retiring.value = g.id
-  error.value = null
   try {
     await api.retireGuideline(g.id)
     guidelines.value = await api.listGuidelines()
   } catch (e) {
-    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    notifyError(e)
   } finally {
     retiring.value = null
   }
@@ -116,13 +114,12 @@ function followProgress(p: Extract<EvalProgress, { running: true }>) {
 async function startEval() {
   running.value = true
   progress.value = null
-  error.value = null
   startPolling()
   try {
     selected.value = await api.startEval()
     runs.value = await api.listEvalRuns()
   } catch (e) {
-    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    notifyError(e)
   } finally {
     stopPolling()
     running.value = false
@@ -201,11 +198,10 @@ const pct = (n: number) => `${Math.round(n * 100)}%`
 
 async function runRetrievalEval() {
   retrievalRunning.value = true
-  error.value = null
   try {
     retrieval.value = await api.evaluateRetrieval()
   } catch (e) {
-    error.value = e instanceof ApiError ? (ERROR_LABEL[e.reason] ?? e.message) : String(e)
+    notifyError(e)
   } finally {
     retrievalRunning.value = false
   }
@@ -252,7 +248,6 @@ async function runRetrievalEval() {
     </div>
 
     <template v-else>
-      <p v-if="error" class="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">{{ error }}</p>
 
       <!-- 審查準則 -->
       <section class="card">

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { isApproverRole } from '@ai-approval/shared'
 import DemoGuide from './components/DemoGuide.vue'
+import ToastList from './components/ToastList.vue'
 import { meta, refreshMeta } from './meta'
 import { DEMO_USERS, currentUser, switchUser } from './session'
 
@@ -99,4 +100,7 @@ function setGuideClosed(closed: boolean) {
     <!-- 切換身分時用 key 強制重建頁面，讓資料用新身分重新載入 -->
     <RouterView :key="`${currentUser.id}-${$route.fullPath}`" />
   </main>
+
+  <!-- 全站共用的提示：任何頁面呼叫 notify / notifyError 都會顯示在這裡 -->
+  <ToastList />
 </template>

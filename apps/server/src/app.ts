@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import {
   FORM_TYPES,
@@ -377,6 +378,25 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
       return
     }
     next(err)
+  })
+
+  // 最後一道防線：前面沒有處理到的錯誤都會到這裡（Express 5 會把 async 路由丟出的錯誤也送過來）
+  // - 使用者只看到一個錯誤編號，不會看到程式內部的訊息（可能含有路徑、外部服務的回應）
+  // - log 用同一個編號記下完整錯誤：使用者回報編號，就能在部署平台的 log 裡找到這一筆
+  app.use((err: { status?: number; type?: string }, req: Request, res: Response, next: NextFunction) => {
+    // 串流（SSE）已經開始送資料時，沒辦法再改成 JSON，交給 Express 預設的處理把連線關掉
+    if (res.headersSent) {
+      next(err)
+      return
+    }
+    // 請求本身有問題（例如 JSON 格式錯誤）：是 4xx，不是伺服器出錯
+    if (typeof err.status === 'number' && err.status >= 400 && err.status < 500) {
+      res.status(err.status).json({ error: 'bad_request' })
+      return
+    }
+    const requestId = randomUUID().slice(0, 8)
+    console.error(`[錯誤 ${requestId}] ${req.method} ${req.originalUrl}`, err)
+    res.status(500).json({ error: 'internal', requestId })
   })
 
   return app

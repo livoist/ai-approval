@@ -238,3 +238,26 @@ describe('檢索評估 API', () => {
     expect(res.body.errors[0].message).toContain('429')
   })
 })
+
+describe('沒有預料到的錯誤', () => {
+  it('回 500 與錯誤編號，不把內部訊息傳給前端', async () => {
+    const service = createRequestService(createStore(), mockReviewer)
+    service.evaluateRetrievalMethods = async () => {
+      throw new Error('內部細節：不應該出現在回應裡')
+    }
+    const res = await request(createApp(service)).post('/evals/retrieval').set(asManager).expect(500)
+    expect(res.body.error).toBe('internal')
+    expect(res.body.requestId).toMatch(/^[0-9a-f]{8}$/)
+    expect(JSON.stringify(res.body)).not.toContain('內部細節')
+  })
+
+  it('JSON 格式錯誤是 400，不是 500', async () => {
+    const res = await request(app)
+      .post('/requests')
+      .set(asAlice)
+      .set('Content-Type', 'application/json')
+      .send('{壞掉的 JSON')
+      .expect(400)
+    expect(res.body.error).toBe('bad_request')
+  })
+})

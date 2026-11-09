@@ -13,7 +13,7 @@ import { ApiError, api } from '../api'
 import RequestForm from '../components/RequestForm.vue'
 import RiskBadge from '../components/RiskBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { ERROR_LABEL } from '../labels'
+import { loadErrorMessage, notifyError } from '../notify'
 import { currentUser } from '../session'
 import { elapsed } from '../time'
 import type { RequestSummary } from '../types'
@@ -23,7 +23,6 @@ const requests = ref<RequestSummary[]>([])
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 const creating = ref(false)
-const error = ref<string | null>(null)
 const serverErrors = ref<Record<string, string>>({})
 
 const isApprover = computed(() => isApproverRole(currentUser.value.role))
@@ -36,25 +35,19 @@ const formType = ref<FormType>('maintenance')
 
 function selectFormType(type: FormType) {
   formType.value = type
-  error.value = null
   serverErrors.value = {}
 }
 
 async function create(title: string, fields: FormValues) {
   creating.value = true
-  error.value = null
   serverErrors.value = {}
   try {
     const r = await api.createRequest({ formType: formType.value, title, fields })
     router.push(`/requests/${r.id}`)
   } catch (e) {
-    // 後端的欄位錯誤，交給表單顯示在對應的欄位下
-    if (e instanceof ApiError) {
-      serverErrors.value = e.fieldErrors
-      error.value = ERROR_LABEL[e.reason] ?? e.message
-    } else {
-      error.value = String(e)
-    }
+    // 後端的欄位錯誤，交給表單顯示在對應的欄位下；整體的說明用提示顯示
+    if (e instanceof ApiError) serverErrors.value = e.fieldErrors
+    notifyError(e)
   } finally {
     creating.value = false
   }
@@ -125,8 +118,8 @@ async function load() {
   loadError.value = null
   try {
     requests.value = await api.listRequests()
-  } catch {
-    loadError.value = '無法載入申請單，請確認後端伺服器是否啟動。'
+  } catch (e) {
+    loadError.value = loadErrorMessage('申請單', e)
   } finally {
     loading.value = false
   }
@@ -166,7 +159,6 @@ onMounted(load)
         :server-errors="serverErrors"
         @submit="create"
       />
-      <p v-if="error" class="mt-3 text-sm text-danger">{{ error }}</p>
     </section>
 
     <!-- 主管看不到新增區塊，清單就佔滿整個寬度 -->
