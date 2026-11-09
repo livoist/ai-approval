@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from './app'
 import { COMPLETE_LOW_VOLTAGE, INCOMPLETE_HIGH_VOLTAGE } from './fixtures'
 import { createRequestService } from './request-service'
+import type { Embedder } from './retrieval'
 import { mockReviewer } from './reviewer'
 import { createStore } from './store'
 
@@ -220,5 +221,20 @@ describe('檢索評估 API', () => {
     expect(res.body.embedder).toBe(null)
     expect(res.body.reports.map((r: { method: string }) => r.method)).toEqual(['bm25'])
     expect(res.body.reports[0].byType.lexical.recall).toBe(1)
+    expect(res.body.errors).toEqual([])
+  })
+
+  it('embedding 服務失敗：不是整個 500，BM25 照樣有結果，失敗的方法列在 errors', async () => {
+    const broken: Embedder = {
+      name: 'broken',
+      async embed() {
+        throw new Error('Voyage API 429: rate limited')
+      },
+    }
+    const app = createApp(createRequestService(createStore(), mockReviewer, { embedder: broken }))
+    const res = await request(app).post('/evals/retrieval').set(asManager).expect(200)
+    expect(res.body.reports.map((r: { method: string }) => r.method)).toEqual(['bm25'])
+    expect(res.body.errors.map((e: { method: string }) => e.method)).toEqual(['vector(broken)', 'hybrid(broken)'])
+    expect(res.body.errors[0].message).toContain('429')
   })
 })

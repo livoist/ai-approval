@@ -209,4 +209,5 @@ export interface RetrievalEvalResult {
   embedder: string | null
   cases: { id: string; formType: FormType; query: string; relevant: string[]; type: 'lexical' | 'paraphrase' }[]
   reports: RetrievalReport[]
+  errors: { method: string; message: string }[] // 執行失敗的方法（例如 embedding 服務連不上）
 }

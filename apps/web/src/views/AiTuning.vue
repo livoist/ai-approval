@@ -441,6 +441,15 @@ async function runRetrievalEval() {
             沒有設定 embedding 服務（VOYAGE_API_KEY），只能評估 BM25。設定之後，這裡會多比較向量檢索與混合檢索。
           </p>
 
+          <div
+            v-for="e in retrieval.errors"
+            :key="e.method"
+            class="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger"
+            data-testid="retrieval-error"
+          >
+            <span class="font-mono">{{ e.method }}</span> 執行失敗，結果沒有列在下表：{{ e.message }}
+          </div>
+
           <table class="mb-3 w-full text-right text-sm tabular-nums" data-testid="retrieval-table">
             <thead class="text-xs text-muted">
               <tr>

@@ -45,3 +45,23 @@ export function withEmbeddingCache(embedder: Embedder): Embedder {
     },
   }
 }
+
+// 評估用：先把一批 query 一次轉好，之後同樣的 query 直接用
+// 檢索評估有 16 題，向量與混合各查一次：一題一題送，短時間內會打 30 幾次 API，容易撞到速率上限
+// 先批次轉好，整次評估只要呼叫幾次（題目一次、每種申請單的條文各一次）
+export function withQueryPrefetch(embedder: Embedder): Embedder & { prefetch(queries: string[]): Promise<void> } {
+  const memo = new Map<string, number[]>()
+  return {
+    name: embedder.name,
+    async prefetch(queries) {
+      const missing = [...new Set(queries)].filter((q) => !memo.has(q))
+      if (missing.length === 0) return
+      const vectors = await embedder.embed(missing, 'query')
+      missing.forEach((q, i) => memo.set(q, vectors[i]!))
+    },
+    async embed(texts, inputType) {
+      if (inputType === 'query' && texts.every((t) => memo.has(t))) return texts.map((t) => memo.get(t)!)
+      return embedder.embed(texts, inputType)
+    },
+  }
+}

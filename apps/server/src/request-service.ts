@@ -18,7 +18,8 @@ import { computeAiStats } from './ai-stats'
 import { createPolicyLibrary, type PolicyImportInput } from './policies'
 import { runEval } from './evals'
 import { buildReviewContext } from './review-context'
-import { evaluateRetrieval, RETRIEVAL_CASES } from './retrieval-eval'
+import { withQueryPrefetch } from './embedder'
+import { evaluateRetrieval, RETRIEVAL_CASES, type RetrievalReport } from './retrieval-eval'
 import { bm25Retriever, createHybridRetriever, createVectorRetriever, type Embedder, type Retriever } from './retrieval'
 import { validateCitations, validateFinding, type Reviewer } from './reviewer'
 import type { ApprovalRequest, EvalRun, FindingFeedback, Guideline, Store } from './store'
@@ -508,14 +509,31 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
   async function evaluateRetrievalMethods(user: CurrentUser) {
     if (!isApproverRole(user.role)) return { ok: false as const, reason: 'forbidden' as const }
     const { embedder } = options
-    const methods: Retriever[] = embedder
-      ? [bm25Retriever, createVectorRetriever(embedder), createHybridRetriever(embedder)]
-      : [bm25Retriever]
-    const reports = []
-    for (const m of methods) reports.push(await evaluateRetrieval(m))
+    const reports: RetrievalReport[] = []
+    // 某一種方法失敗（例如 embedding 服務暫時連不上）時，其他方法的結果照樣顯示，並說明失敗原因
+    const errors: { method: string; message: string }[] = []
+    const run = async (retriever: Retriever) => {
+      try {
+        reports.push(await evaluateRetrieval(retriever))
+      } catch (err) {
+        errors.push({ method: retriever.name, message: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    await run(bm25Retriever)
+    if (embedder) {
+      const prefetched = withQueryPrefetch(embedder)
+      try {
+        await prefetched.prefetch(RETRIEVAL_CASES.map((c) => c.query))
+      } catch {
+        // 先批次轉換失敗也沒關係：交給下面各自執行，失敗的會記在 errors 裡
+      }
+      await run(createVectorRetriever(prefetched))
+      await run(createHybridRetriever(prefetched))
+    }
     return {
       ok: true as const,
-      result: { active: (options.retriever ?? bm25Retriever).name, embedder: embedder?.name ?? null, cases: RETRIEVAL_CASES, reports },
+      result: { active: (options.retriever ?? bm25Retriever).name, embedder: embedder?.name ?? null, cases: RETRIEVAL_CASES, reports, errors },
     }
   }
 
