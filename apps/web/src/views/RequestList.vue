@@ -71,7 +71,7 @@ const SCOPE_LABEL = computed(() => ({
   all: '全部',
 }))
 
-// 主管的「待我簽核」是待主管簽核的單；廠長的是待廠長核准的單
+// 主管的「待我簽核」是待直屬主管簽核的單；部門主管的是待部門主管核准的單
 const inScope = (r: RequestSummary) =>
   isApprover.value
     ? r.status === PENDING_STATUS_FOR[currentUser.value.role]

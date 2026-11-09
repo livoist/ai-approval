@@ -111,7 +111,7 @@ const canAct = computed(
   () => isApprover.value || request.value?.applicantId === currentUser.value.id,
 )
 
-// 這張單要不要送廠長：跟後端用同一個函式算，畫出來的路線就是實際會走的路線
+// 這張單要不要送部門主管：跟後端用同一個函式算，畫出來的路線就是實際會走的路線
 const routeNeedsPlantManager = computed(() =>
   request.value ? needsPlantManager(request.value.formType, request.value.fields) : false,
 )

@@ -1,7 +1,7 @@
 import type { ActorRole, RequestEvent, RequestStatus } from './types'
 
 // 轉換時可以參考的「申請單內容」
-// 同一個狀態收到同一個事件，結果可能不一樣：主管核准之後，要直接結案還是再送廠長，取決於金額
+// 同一個狀態收到同一個事件，結果可能不一樣：主管核准之後，要直接結案還是再送部門主管，取決於金額
 // 這份資訊由規則引擎算出來（見 forms/index.ts 的 needsPlantManager），狀態機只負責讀
 export interface TransitionContext {
   needsPlantManager: boolean
@@ -10,7 +10,7 @@ export interface TransitionContext {
 const NO_CONTEXT: TransitionContext = { needsPlantManager: false }
 
 // 守衛條件（guard）：一條轉換只有在條件成立時才會被選中
-// 寫成有名字的函式而不是隨手寫在表裡，表格讀起來才像一句話：「需要廠長時，主管核准會送到廠長」
+// 寫成有名字的函式而不是隨手寫在表裡，表格讀起來才像一句話：「需要部門主管時，主管核准會送到部門主管」
 const GUARDS = {
   needsPlantManager: (ctx: TransitionContext) => ctx.needsPlantManager,
   noPlantManager: (ctx: TransitionContext) => !ctx.needsPlantManager,
@@ -34,13 +34,13 @@ export const TRANSITIONS: readonly Transition[] = [
   { from: 'reviewing', event: 'AI_REVIEW_DONE', to: 'pending_approval', allowedRoles: ['system'] },
   { from: 'reviewing', event: 'AI_REVIEW_FAILED', to: 'draft', allowedRoles: ['system'] },
 
-  // 第一層：主管。核准之後要不要再送廠長，由守衛條件決定
+  // 第一層：主管。核准之後要不要再送部門主管，由守衛條件決定
   { from: 'pending_approval', event: 'APPROVE', to: 'pending_final_approval', allowedRoles: ['approver'], when: 'needsPlantManager' },
   { from: 'pending_approval', event: 'APPROVE', to: 'approved', allowedRoles: ['approver'], when: 'noPlantManager' },
   { from: 'pending_approval', event: 'REJECT', to: 'rejected', allowedRoles: ['approver'] },
   { from: 'pending_approval', event: 'REQUEST_INFO', to: 'needs_info', allowedRoles: ['approver'] },
 
-  // 第二層：廠長。退回或要求補件的話，補件後要從頭再走一次（重新預審、主管再簽）
+  // 第二層：部門主管。退回或要求補件的話，補件後要從頭再走一次（重新預審、主管再簽）
   { from: 'pending_final_approval', event: 'APPROVE', to: 'approved', allowedRoles: ['plant_manager'] },
   { from: 'pending_final_approval', event: 'REJECT', to: 'rejected', allowedRoles: ['plant_manager'] },
   { from: 'pending_final_approval', event: 'REQUEST_INFO', to: 'needs_info', allowedRoles: ['plant_manager'] },
@@ -78,7 +78,7 @@ export function transition(
 }
 
 // 給前端用：在目前狀態下，這個角色可以做哪些事？（用來決定顯示哪些按鈕）
-// 用 Set 去除重複：主管核准有兩條規則（送廠長、直接結案），但按鈕只要一個
+// 用 Set 去除重複：主管核准有兩條規則（送部門主管、直接結案），但按鈕只要一個
 export function availableEvents(
   current: RequestStatus,
   role: ActorRole,

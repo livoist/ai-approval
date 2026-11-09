@@ -23,7 +23,7 @@ async function createAndSubmit(page: Page, sample: string) {
   await expect(status(page)).toHaveText('草稿')
 
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(status(page)).toHaveText('待直屬主管簽核')
 }
 
 test('表單驗證：必填欄位擋下送出，高壓區塊依電壓出現', async ({ page }) => {
@@ -79,7 +79,7 @@ test('完整流程：評價 AI → 要求補件 → 申請人修改重送 → �
   await page.getByRole('button', { name: '儲存' }).click()
 
   await page.getByRole('button', { name: '補件重送' }).click()
-  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(status(page)).toHaveText('待直屬主管簽核')
   await expect(page.getByText('第 2 版')).toBeVisible() // 補件重送後版本號 +1
 
   // 規則的兩條問題都補齊了，只剩 AI 對說明的意見
@@ -125,7 +125,7 @@ test('第二種申請單：費用報銷用自己的表單、規則與規範文�
   await page.getByRole('button', { name: '建立草稿' }).click()
   await expect(status(page)).toHaveText('草稿')
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(status(page)).toHaveText('待直屬主管簽核')
 
   // 規則：每人超過 2,000 元；AI：事由太籠統
   await expect(findings(page, 'rule')).toHaveCount(1)
@@ -158,31 +158,31 @@ test('清單：主管預設看到待我簽核，附風險等級與等待時間',
   await expect(page.getByRole('link', { name: /3 號產線高壓馬達維修/ })).toHaveCount(0)
 })
 
-test('多層級簽核：超過門檻時，主管核准後還要廠長核准', async ({ page }) => {
+test('多層級簽核：超過門檻時，直屬主管核准後還要部門主管核准', async ({ page }) => {
   await page.goto('/')
   await switchUser(page, 'alice')
   await page.getByRole('tab', { name: '費用報銷申請' }).click()
-  await page.getByRole('button', { name: '大額・需廠長核准' }).click()
-  // 填單時就看得到：規則提醒這張要廠長核准
-  await expect(page.getByText(/須另經廠長核准/)).toBeVisible()
+  await page.getByRole('button', { name: '大額・需部門主管核准' }).click()
+  // 填單時就看得到：規則提醒這張要部門主管核准
+  await expect(page.getByText(/須另經部門主管核准/)).toBeVisible()
   await page.getByRole('button', { name: '建立草稿' }).click()
 
-  // 簽核路線多了「廠長核准」這一關
+  // 簽核路線多了「部門主管核准」這一關
   const route = page.getByRole('list', { name: '簽核路線' })
   await expect(route.locator('[data-step="director"]')).toBeVisible()
 
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(status(page)).toHaveText('待直屬主管簽核')
 
-  // 主管核准 → 不是結案，而是送到廠長
+  // 主管核准 → 不是結案，而是送到部門主管
   await switchUser(page, 'manager')
   await page.getByRole('button', { name: '核准' }).click()
-  await expect(status(page)).toHaveText('待廠長核准')
+  await expect(status(page)).toHaveText('待部門主管核准')
   await expect(route.locator('[data-step="director"]')).toHaveAttribute('data-state', 'current')
   // 主管不能把第二關也簽掉
   await expect(page.getByRole('button', { name: '核准' })).toHaveCount(0)
 
-  // 廠長的「待我簽核」裡有這張單
+  // 部門主管的「待我簽核」裡有這張單
   await switchUser(page, 'director')
   await page.goto('/')
   await page.getByRole('link', { name: /年度客戶答謝餐會/ }).first().click()
@@ -191,7 +191,7 @@ test('多層級簽核：超過門檻時，主管核准後還要廠長核准', as
   await expect(route.locator('[data-step="done"]')).toHaveAttribute('data-state', 'done')
 })
 
-test('多層級簽核：未超過門檻時，簽核路線沒有廠長', async ({ page }) => {
+test('多層級簽核：未超過門檻時，簽核路線沒有部門主管', async ({ page }) => {
   await page.goto('/')
   await switchUser(page, 'alice')
   await page.getByRole('button', { name: '低壓・說明簡略' }).click()
@@ -259,7 +259,7 @@ test('規範文件：匯入 PDF，預審時只把相關的條文交給 AI', asyn
   await page.getByRole('button', { name: '交通費・資料齊全' }).click()
   await page.getByRole('button', { name: '建立草稿' }).click()
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(status(page)).toHaveText('待直屬主管簽核')
   await expect(page.getByRole('heading', { name: '國內出差管理辦法' })).toBeVisible()
   await expect(page.getByTestId('retrieval-note')).toBeVisible()
   await expect(page.getByTestId(`policy-${code}-3`)).toHaveAttribute('data-retrieved', 'true') // 搭乘高鐵的規定
@@ -281,7 +281,7 @@ test('輸入防護：夾帶給 AI 的指令會被移除並標示，個資送給 
   await page.getByRole('button', { name: '含個資' }).click()
   await page.getByRole('button', { name: '建立草稿' }).click()
   await page.getByRole('button', { name: '送出', exact: true }).click()
-  await expect(status(page)).toHaveText('待主管簽核')
+  await expect(status(page)).toHaveText('待直屬主管簽核')
   await expect(page.getByTestId('masked-pii')).toContainText('身分證字號 1 個')
   await expect(page.getByTestId('masked-pii')).toContainText('手機號碼 1 個')
   await expect(page.getByText('A123456789')).toBeVisible() // 主管看到的是原文

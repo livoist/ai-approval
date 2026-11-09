@@ -4,8 +4,8 @@ import type { AuditAction, RequestStatus } from '@ai-approval/shared'
 export const STATUS_LABEL: Record<RequestStatus, string> = {
   draft: '草稿',
   reviewing: 'AI 預審中',
-  pending_approval: '待主管簽核',
-  pending_final_approval: '待廠長核准',
+  pending_approval: '待直屬主管簽核',
+  pending_final_approval: '待部門主管核准',
   needs_info: '待補件',
   approved: '已核准',
   rejected: '已退回',

@@ -3,8 +3,8 @@
 export type RequestStatus =
   | 'draft' // 草稿：申請人還在填
   | 'reviewing' // AI 預審中
-  | 'pending_approval' // 等待主管簽核
-  | 'pending_final_approval' // 主管已核准，等待廠長核准（金額超過門檻時才會有這一關）
+  | 'pending_approval' // 等待直屬主管簽核
+  | 'pending_final_approval' // 主管已核准，等待部門主管核准（金額超過門檻時才會有這一關）
   | 'needs_info' // 主管要求補件
   | 'approved' // 已核准（終點）
   | 'rejected' // 已退回（終點）

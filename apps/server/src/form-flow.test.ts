@@ -102,7 +102,7 @@ describe('預審：規則引擎 + AI', () => {
     expect(service.getLatestReview(r.id)).toMatchObject({ riskLevel: 'low', findings: [] })
   })
 
-  it('超過 50 萬元：提醒要廠長核准', async () => {
+  it('超過 50 萬元：提醒要部門主管核准', async () => {
     const r = mustCreate(service, alice, { ...COMPLETE_LOW_VOLTAGE, estimatedCost: 800_000 })
     service.sendEvent(r.id, 'SUBMIT', alice)
     await service.waitForReview(r.id)

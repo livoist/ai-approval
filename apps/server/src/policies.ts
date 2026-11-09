@@ -49,7 +49,7 @@ export const POLICY_CHUNKS: readonly PolicyChunk[] = [
     id: 'sop-5.1',
     ...MAINTENANCE,
     section: '5.1',
-    text: '預估維修費用超過新台幣 50 萬元者，須另經廠長核准。',
+    text: '預估維修費用超過新台幣 50 萬元者，須另經部門主管核准。',
   },
   {
     id: 'fin-2.1',
@@ -103,7 +103,7 @@ export const POLICY_CHUNKS: readonly PolicyChunk[] = [
     id: 'fin-6.1',
     ...EXPENSE,
     section: '6.1',
-    text: '單筆報銷金額超過新台幣 3 萬元者，經部門主管核准後，須另經廠長核准。',
+    text: '單筆報銷金額超過新台幣 3 萬元者，經直屬主管核准後，須另經部門主管核准。',
   },
 ]
 

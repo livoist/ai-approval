@@ -22,7 +22,7 @@ export interface RuleContext {
 export interface Rule {
   id: string
   cites: string[]
-  // 這條規則成立時，簽核要多一關廠長：規範不只是被引用，而是真的改變流程走向
+  // 這條規則成立時，簽核要多一關部門主管：規範不只是被引用，而是真的改變流程走向
   escalatesToPlantManager?: boolean
   check(values: FormValues, ctx: RuleContext): Pick<Finding, 'kind' | 'message'> | null
 }

@@ -2,7 +2,7 @@ import type { FormType, FormValues } from '@ai-approval/shared'
 
 // 測試與 demo 用的範例申請單
 // 每一筆都刻意設計成會觸發不同的預審結果，方便一次看完所有情境：
-// 規則引擎負責的（斷電紀錄、LOTO、廠長核准）、AI 負責的（說明是否具體），
+// 規則引擎負責的（斷電紀錄、LOTO、部門主管核准）、AI 負責的（說明是否具體），
 // 以及輸入防護負責的（夾帶給 AI 的指令、個資遮罩）
 export interface SampleRequest {
   formType: FormType
@@ -70,7 +70,7 @@ export const SAMPLE_REQUESTS: SampleRequest[] = [
   {
     formType: 'maintenance',
     label: '超過 50 萬',
-    expect: '低風險，1 項（規則提醒需廠長核准）',
+    expect: '低風險，1 項（規則提醒需部門主管核准）',
     title: '冷卻水塔風扇馬達汰換',
     fields: {
       equipmentId: 'CT-0012',
@@ -172,8 +172,8 @@ export const SAMPLE_REQUESTS: SampleRequest[] = [
   },
   {
     formType: 'expense',
-    label: '大額・需廠長核准',
-    expect: '低風險，1 項（規則提醒需廠長核准）',
+    label: '大額・需部門主管核准',
+    expect: '低風險，1 項（規則提醒需部門主管核准）',
     title: '年度客戶答謝餐會',
     fields: {
       expenseType: '業務招待費',

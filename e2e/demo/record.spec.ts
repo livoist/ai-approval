@@ -74,7 +74,7 @@ test('錄製 demo', async ({ page }) => {
   // 2. 串流預審：一送出就捲到預審區塊，才看得到意見一條一條長出來
   await say(page, '明確的規範交給規則判斷，模糊的判斷交給 AI，意見一條一條出現', 0)
   await scrollTo(page, page.getByRole('heading', { name: 'AI 預審', exact: true }))
-  await expect(status(page)).toHaveText('待主管簽核', { timeout: 15_000 })
+  await expect(status(page)).toHaveText('待直屬主管簽核', { timeout: 15_000 })
   await page.waitForTimeout(1500)
 
   // 3. 點引用
@@ -96,10 +96,10 @@ test('錄製 demo', async ({ page }) => {
   await expect(status(page)).toHaveText('待補件')
   await page.waitForTimeout(1200)
 
-  // 5. 兩層簽核：示範資料裡已經有一張停在「待廠長核准」的單
+  // 5. 兩層簽核：示範資料裡已經有一張停在「待部門主管核准」的單
   await page.goto('/')
   await switchUser(page, 'director')
-  await say(page, '超過金額門檻的單，主管核准後還要廠長核准；路線由規範自動決定')
+  await say(page, '超過金額門檻的單，直屬主管核准後還要部門主管核准；路線由規範自動決定')
   await page.getByRole('link', { name: /冷卻水塔風扇馬達汰換/ }).first().click()
   await resay(page)
   await page.waitForTimeout(1500)

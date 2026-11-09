@@ -79,7 +79,7 @@ describe('規則引擎', () => {
     expect(runRules({ ...base, voltage: 480, lockoutBy: '陳工程師', lotoDone: true })).toHaveLength(1)
   })
 
-  it('超過 50 萬要廠長核准，剛好 50 萬不用', () => {
+  it('超過 50 萬要部門主管核准，剛好 50 萬不用', () => {
     expect(runRules({ ...base, estimatedCost: 500_001 })[0]?.kind).toBe('notice')
     expect(runRules({ ...base, estimatedCost: 500_000 })).toEqual([])
   })

@@ -86,7 +86,7 @@ export const EXPENSE_RULES: Rule[] = [
     check: (v) => {
       const amount = num(v.amount)
       return amount !== null && amount > PLANT_MANAGER_THRESHOLD
-        ? { kind: 'notice', message: `報銷金額 ${money(amount)}，超過 3 萬元，須另經廠長核准。` }
+        ? { kind: 'notice', message: `報銷金額 ${money(amount)}，超過 3 萬元，須另經部門主管核准。` }
         : null
     },
   },

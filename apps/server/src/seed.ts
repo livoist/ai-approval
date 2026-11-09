@@ -341,7 +341,7 @@ const SEEDS: Seed[] = [
       isDown: false,
     },
     submit: true,
-    // 超過 50 萬：主管核准後送到廠長，停在「待廠長核准」
+    // 超過 50 萬：直屬主管核准後送到部門主管，停在「待部門主管核准」
     then: [{ by: manager, event: 'APPROVE' }],
   },
   {
@@ -395,7 +395,7 @@ const SEEDS: Seed[] = [
       invoiceNumber: 'GH-55667788',
     },
     submit: true,
-    // 超過 3 萬：主管與廠長兩關都簽完 → 已核准
+    // 超過 3 萬：主管與部門主管兩關都簽完 → 已核准
     then: [
       { by: manager, event: 'APPROVE' },
       { by: director, event: 'APPROVE' },

@@ -7,7 +7,7 @@ const props = defineProps<{
   status: RequestStatus
   role: Exclude<ActorRole, 'system'>
   busy: boolean
-  // 這張單要不要送廠長：影響主管按下核准之後的去向（按鈕一樣，結果不同）
+  // 這張單要不要送部門主管：影響主管按下核准之後的去向（按鈕一樣，結果不同）
   needsPlantManager: boolean
 }>()
 

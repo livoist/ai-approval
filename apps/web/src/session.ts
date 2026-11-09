@@ -11,8 +11,8 @@ export interface DemoUser {
 export const DEMO_USERS: DemoUser[] = [
   { id: 'alice', name: 'Alice（申請人）', role: 'applicant' },
   { id: 'bob', name: 'Bob（申請人）', role: 'applicant' },
-  { id: 'manager', name: '王經理（主管）', role: 'approver' },
-  { id: 'director', name: '林廠長（廠長）', role: 'plant_manager' },
+  { id: 'manager', name: '王經理（直屬主管）', role: 'approver' },
+  { id: 'director', name: '林協理（部門主管）', role: 'plant_manager' },
 ]
 
 const STORAGE_KEY = 'demo-user-id'

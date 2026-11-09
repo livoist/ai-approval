@@ -238,7 +238,7 @@ async function runRetrievalEval() {
 
     <div v-if="!isApprover" class="card text-center">
       <p class="font-medium">只有簽核者可以查看</p>
-      <p class="mt-1 text-sm text-muted">切換成主管或廠長的身分再試一次。</p>
+      <p class="mt-1 text-sm text-muted">切換成直屬主管或部門主管的身分再試一次。</p>
     </div>
 
     <div v-else-if="loading" class="grid animate-pulse gap-4" aria-busy="true">

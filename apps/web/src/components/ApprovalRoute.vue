@@ -4,7 +4,7 @@ import type { RequestStatus } from '@ai-approval/shared'
 import type { AuditEvent } from '../types'
 
 // 簽核路線：這張單會經過哪幾關、現在走到哪、停在哪
-// 「要不要經過廠長」跟後端用的是同一個 needsPlantManager，所以畫出來的路線就是實際會走的路線
+// 「要不要經過部門主管」跟後端用的是同一個 needsPlantManager，所以畫出來的路線就是實際會走的路線
 
 const props = defineProps<{
   status: RequestStatus
@@ -37,8 +37,8 @@ const steps = computed(() => {
   const LABEL: Record<StepKey, string> = {
     submit: '送出申請',
     review: 'AI 預審',
-    manager: '主管簽核',
-    director: '廠長核准',
+    manager: '直屬主管簽核',
+    director: '部門主管核准',
     done: '核准結案',
   }
 

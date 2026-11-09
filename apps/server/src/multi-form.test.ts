@@ -99,7 +99,7 @@ describe('清單摘要', () => {
 describe('第二層簽核', () => {
   const director = { id: 'director', role: 'plant_manager' as const }
 
-  it('金額超過門檻：主管核准 → 待廠長核准 → 廠長核准', async () => {
+  it('金額超過門檻：主管核准 → 待部門主管核准 → 部門主管核准', async () => {
     const r = mustCreate(service, alice, { ...COMPLETE_EXPENSE, amount: 45_000 }, '大額報銷', 'expense')
     await submitAndReview(r.id)
 
@@ -117,13 +117,13 @@ describe('第二層簽核', () => {
     ])
   })
 
-  it('金額未超過門檻：主管核准就結案，廠長看不到這張單', async () => {
+  it('金額未超過門檻：主管核准就結案，部門主管看不到這張單', async () => {
     const r = mustCreate(service, alice, COMPLETE_EXPENSE, '小額報銷', 'expense')
     await submitAndReview(r.id)
     expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({ request: { status: 'approved' } })
   })
 
-  it('補件時把金額降到門檻以下，重送後就不用廠長', async () => {
+  it('補件時把金額降到門檻以下，重送後就不用部門主管', async () => {
     const r = mustCreate(service, alice, { ...COMPLETE_EXPENSE, amount: 45_000 }, '大額報銷', 'expense')
     await submitAndReview(r.id)
     service.sendEvent(r.id, 'APPROVE', manager)
@@ -135,7 +135,7 @@ describe('第二層簽核', () => {
     expect(service.sendEvent(r.id, 'APPROVE', manager)).toMatchObject({ request: { status: 'approved' } })
   })
 
-  it('廠長也可以評價 AI 的意見', async () => {
+  it('部門主管也可以評價 AI 的意見', async () => {
     const r = mustCreate(service, alice, { ...COMPLETE_EXPENSE, amount: 45_000, purpose: '客戶餐費報銷' }, 'x', 'expense')
     const review = await submitAndReview(r.id)
     const aiIndex = review.findings!.findIndex((f) => f.source === 'ai')

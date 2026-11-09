@@ -209,7 +209,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     }
 
     // 規則全部交給 shared 的狀態機判斷，這裡不重寫任何 if-else
-    // 這張單要不要送廠長，由規則引擎依內容判斷；狀態機用它選出正確的下一步
+    // 這張單要不要送部門主管，由規則引擎依內容判斷；狀態機用它選出正確的下一步
     const ctx = { needsPlantManager: needsPlantManager(request.formType as FormType, request.fields, now()) }
     const result = transition(request.status, event, user.role, ctx)
     if (!result.ok) return result

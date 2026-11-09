@@ -46,7 +46,7 @@ export function runRules(type: FormType, values: FormValues, now = new Date()): 
   return runRuleSet(FORM_KINDS[type].rules, values, { now })
 }
 
-// 這張單要不要多一關廠長：只要有一條「會升級」的規則成立就要
+// 這張單要不要多一關部門主管：只要有一條「會升級」的規則成立就要
 // 前端用它畫出簽核路線、後端用它決定主管核准後的下一步，兩邊算出來的一定一樣
 export function needsPlantManager(type: FormType, values: FormValues, now = new Date()): boolean {
   return FORM_KINDS[type].rules.some((r) => r.escalatesToPlantManager && r.check(values, { now }) !== null)

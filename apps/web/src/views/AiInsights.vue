@@ -211,7 +211,7 @@ const REVIEWER_LABEL: Record<string, string> = { mock: '模擬審查員' }
 
     <div v-if="!isApprover" class="card text-center">
       <p class="font-medium">只有簽核者可以查看</p>
-      <p class="mt-1 text-sm text-muted">切換成主管或廠長的身分再試一次。</p>
+      <p class="mt-1 text-sm text-muted">切換成直屬主管或部門主管的身分再試一次。</p>
     </div>
 
     <!-- 載入中：骨架佔位，跟資料出現後的版面一樣大 -->

@@ -66,14 +66,14 @@ describe('費用報銷規則', () => {
 })
 
 describe('簽核路線', () => {
-  it('報銷超過 3 萬元要廠長核准，剛好 3 萬不用', async () => {
+  it('報銷超過 3 萬元要部門主管核准，剛好 3 萬不用', async () => {
     const { needsPlantManager } = await import('./index')
     expect(needsPlantManager('expense', { ...base, amount: 30_001 }, today)).toBe(true)
     expect(needsPlantManager('expense', { ...base, amount: 30_000 }, today)).toBe(false)
     expect(run({ ...base, amount: 30_001 })[0]).toMatchObject({ kind: 'notice', citations: ['fin-6.1'] })
   })
 
-  it('設備維修超過 50 萬要廠長核准', async () => {
+  it('設備維修超過 50 萬要部門主管核准', async () => {
     const { needsPlantManager } = await import('./index')
     expect(needsPlantManager('maintenance', { estimatedCost: 500_001 })).toBe(true)
     expect(needsPlantManager('maintenance', { estimatedCost: 500_000 })).toBe(false)

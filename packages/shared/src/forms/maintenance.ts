@@ -97,7 +97,7 @@ export const MAINTENANCE_RULES: Rule[] = [
     check: (v) => {
       const cost = num(v.estimatedCost)
       return cost !== null && cost > PLANT_MANAGER_THRESHOLD
-        ? { kind: 'notice', message: `預估費用 ${money(cost)}，超過 50 萬元，須另經廠長核准。` }
+        ? { kind: 'notice', message: `預估費用 ${money(cost)}，超過 50 萬元，須另經部門主管核准。` }
         : null
     },
   },
