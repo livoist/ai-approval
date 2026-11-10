@@ -9,7 +9,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "db:reset": "rm -f data/app.db data/app.db-wal data/app.db-shm",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "eval:reference": "tsx src/scripts/eval-reference.ts"
   },
   "dependencies": {
     "@ai-approval/shared": "workspace:*",

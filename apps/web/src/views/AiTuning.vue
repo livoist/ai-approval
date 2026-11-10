@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getFormKind, isApproverRole } from '@ai-approval/shared'
 import { api } from '../api'
+import { meta } from '../meta'
 import { loadErrorMessage, notifyError } from '../notify'
 import { currentUser } from '../session'
 import { formatDateTime } from '../time'
@@ -25,6 +26,13 @@ const isApprover = computed(() => isApproverRole(currentUser.value.role))
 const guidelines = ref<Guideline[]>([])
 const runs = ref<EvalRunSummary[]>([])
 const selected = ref<EvalRun | null>(null)
+
+// Claude 參考評估：公開 demo 的評估集用模擬審查員，真實 AI 的分數看這份（在本機用 Claude 跑過、隨程式一起部署）
+const reference = ref<EvalRun | null>(null)
+const showReference = ref(false)
+// 畫面上顯示的是哪一份：參考評估，或最近／選取的那一次評估
+const shown = computed(() => (showReference.value ? reference.value : selected.value))
+const evalUsesMock = computed(() => meta.value?.evalReviewer === 'mock')
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 
@@ -35,9 +43,15 @@ async function load() {
   loading.value = true
   loadError.value = null
   try {
-    ;[guidelines.value, runs.value] = await Promise.all([api.listGuidelines(), api.listEvalRuns()])
-    // 預設打開最近一次評估
+    ;[guidelines.value, runs.value, reference.value] = await Promise.all([
+      api.listGuidelines(),
+      api.listEvalRuns(),
+      // 參考評估拿不到不影響其他功能
+      api.getEvalReference().catch(() => null),
+    ])
+    // 預設打開最近一次評估；還沒有評估過就先看參考評估
     if (runs.value[0] && selected.value?.id !== runs.value[0].id) selected.value = await api.getEvalRun(runs.value[0].id)
+    if (!selected.value && reference.value) showReference.value = true
   } catch (e) {
     loadError.value = loadErrorMessage('資料', e)
   } finally {
@@ -117,6 +131,7 @@ async function startEval() {
   startPolling()
   try {
     selected.value = await api.startEval()
+    showReference.value = false
     runs.value = await api.listEvalRuns()
   } catch (e) {
     notifyError(e)
@@ -142,6 +157,7 @@ const progressView = computed(() => {
 
 async function openRun(id: string) {
   selected.value = await api.getEvalRun(id)
+  showReference.value = false
 }
 
 // 比較表的三列：通過的案例、該抓的抓到幾條、誤報幾條
@@ -160,7 +176,7 @@ function delta(m: (typeof METRICS)[number], run: EvalRun) {
 }
 
 const caseRows = computed(() => {
-  const run = selected.value
+  const run = shown.value
   if (!run) return []
   const byId = (list: EvalCaseResult[]) => new Map(list.map((r) => [r.caseId, r]))
   const base = byId(run.report.baseline.results)
@@ -182,7 +198,7 @@ const expectation = (c: { shouldFlag: string[]; shouldNotFlag: string[] }) =>
   c.shouldFlag.length ? `應提出 ${c.shouldFlag.join('、')}` : `不應提出 ${c.shouldNotFlag.join('、')}`
 
 const usedMock = computed(() => {
-  const run = selected.value
+  const run = shown.value
   if (!run) return false
   return [...run.report.baseline.results, ...run.report.withGuidelines.results].some((r) => r.reviewer.startsWith('mock'))
 })
@@ -309,7 +325,13 @@ async function runRetrievalEval() {
         <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 class="font-semibold">評估集</h2>
-            <p class="text-xs text-muted">12 個答案已知的案例（含 2 個夾帶指令的攻擊案例），各跑「不套用準則」與「套用準則」一次。用 Claude 時約需一分鐘，會計入 AI 每日用量。</p>
+            <p class="text-xs text-muted">
+              12 個答案已知的案例（含 2 個夾帶指令的攻擊案例），各跑「不套用準則」與「套用準則」一次。
+              <template v-if="evalUsesMock">
+                示範環境用模擬審查員執行，不消耗 AI 額度；Claude 的實際表現請看「Claude 參考結果」。
+              </template>
+              <template v-else>用 Claude 時約需一分鐘，會計入 AI 每日用量。</template>
+            </p>
           </div>
           <button type="button" class="btn btn-primary" :disabled="running" @click="startEval">
             {{ running ? '評估中…' : '執行評估' }}
@@ -336,15 +358,51 @@ async function runRetrievalEval() {
           <p class="text-xs text-muted">可以先離開這一頁，評估會在後端跑完，回來就看得到結果。</p>
         </div>
 
-        <div v-if="!selected && !running" class="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted">
+        <!-- 有參考評估時：切換「Claude 參考結果」與「最近一次評估」 -->
+        <div v-if="reference" class="mb-3 inline-flex rounded-lg border p-0.5 text-xs" role="group" aria-label="顯示哪一份評估結果">
+          <button
+            type="button"
+            class="cursor-pointer rounded-md px-3 py-1"
+            :class="showReference ? 'bg-accent text-white' : 'text-muted hover:text-ink'"
+            :aria-pressed="showReference"
+            data-testid="eval-view-reference"
+            @click="showReference = true"
+          >
+            Claude 參考結果
+          </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded-md px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+            :class="!showReference ? 'bg-accent text-white' : 'text-muted hover:text-ink'"
+            :aria-pressed="!showReference"
+            :disabled="!selected"
+            data-testid="eval-view-latest"
+            @click="showReference = false"
+          >
+            最近一次評估
+          </button>
+        </div>
+
+        <div v-if="!shown && !running" class="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted">
           還沒有評估紀錄，按「執行評估」跑第一次。
         </div>
 
         <!-- 舊的結果在執行中先淡化：看得出正在更新，版面也不會跳 -->
-        <div v-else-if="selected" :class="{ 'pointer-events-none opacity-40 transition-opacity': running }" :aria-busy="running">
-          <p class="mb-3 text-xs text-muted">
-            {{ formatDateTime(selected.createdAt) }} · {{ selected.createdBy }} 執行 · 審查員 {{ selected.reviewer }} ·
-            套用 {{ selected.report.guidelines.length }} 條準則
+        <div v-else-if="shown" :class="{ 'pointer-events-none opacity-40 transition-opacity': running }" :aria-busy="running">
+          <div v-if="showReference" class="mb-3 rounded-lg bg-bg px-3 py-2 text-xs text-muted" data-testid="eval-reference-note">
+            <p>
+              {{ formatDateTime(shown.createdAt) }} 用 <span class="font-mono">{{ shown.reviewer }}</span> 實際跑過的結果，結果固定，查看不消耗 AI 額度。
+              套用的 {{ shown.report.guidelines.length }} 條準則：
+            </p>
+            <ul class="mt-1 grid gap-0.5">
+              <li v-for="g in shown.report.guidelines" :key="g.id">
+                <span class="font-mono">{{ g.policyId }}</span> {{ g.text }}
+              </li>
+            </ul>
+          </div>
+          <p v-else class="mb-3 text-xs text-muted">
+            {{ formatDateTime(shown.createdAt) }} · {{ shown.createdBy }} 執行 · 審查員 {{ shown.reviewer }} ·
+            套用 {{ shown.report.guidelines.length }} 條準則
           </p>
           <p v-if="usedMock" class="mb-3 rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning">
             這次由模擬審查員完成。模擬審查員看不懂準則的文字，只會在有準則時放寬那條規範的判斷標準，用來展示整個流程；實際效果請設定 Claude 再評估。
@@ -363,9 +421,9 @@ async function runRetrievalEval() {
             <tbody>
               <tr v-for="m in METRICS" :key="m.key" class="border-t" :data-testid="`metric-${m.key}`">
                 <td class="py-2 text-left">{{ m.label }}</td>
-                <td data-variant="baseline">{{ m.of(selected.report.baseline.summary) }}</td>
-                <td data-variant="with" class="font-semibold">{{ m.of(selected.report.withGuidelines.summary) }}</td>
-                <td :class="delta(m, selected).tone">{{ delta(m, selected).text }}</td>
+                <td data-variant="baseline">{{ m.of(shown.report.baseline.summary) }}</td>
+                <td data-variant="with" class="font-semibold">{{ m.of(shown.report.withGuidelines.summary) }}</td>
+                <td :class="delta(m, shown).tone">{{ delta(m, shown).text }}</td>
               </tr>
             </tbody>
           </table>
@@ -420,7 +478,7 @@ async function runRetrievalEval() {
               <button
                 type="button"
                 class="w-full cursor-pointer rounded px-2 py-1 text-left text-xs hover:bg-bg"
-                :class="{ 'bg-bg font-medium': r.id === selected?.id }"
+                :class="{ 'bg-bg font-medium': !showReference && r.id === selected?.id }"
                 @click="openRun(r.id)"
               >
                 {{ formatDateTime(r.createdAt) }} · {{ r.reviewer }} · {{ r.guidelineIds.length }} 條準則 · 通過

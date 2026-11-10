@@ -11,7 +11,8 @@
     "dev:server": "pnpm --filter @ai-approval/server dev",
     "dev:web": "pnpm --filter @ai-approval/web dev",
     "e2e": "pnpm --filter @ai-approval/e2e e2e",
-    "demo:record": "pnpm --filter @ai-approval/e2e demo"
+    "demo:record": "pnpm --filter @ai-approval/e2e demo",
+    "eval:reference": "pnpm --filter @ai-approval/server eval:reference"
   },
   "packageManager": "pnpm@12.16.1"
 }

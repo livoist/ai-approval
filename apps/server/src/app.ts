@@ -103,6 +103,7 @@ function fakeAuth(req: Request, res: Response, next: NextFunction) {
 export interface AppMeta {
   demo: boolean
   ai: { reviewer: string; used: number; limit: number } | null
+  evalReviewer?: string // 評估集用的審查員：公開 demo 是模擬審查員
 }
 
 export function createApp(service: RequestService, options: { meta?: () => AppMeta } = {}) {
@@ -191,6 +192,11 @@ export function createApp(service: RequestService, options: { meta?: () => AppMe
   // 進度要寫在 /evals/:id 前面：不然「progress」會被當成某一次評估的 id
   app.get('/evals/progress', requireApprover, (_req, res) => {
     res.json(service.getEvalProgress())
+  })
+
+  // Claude 參考評估（同樣要寫在 /evals/:id 前面）：沒有的話回傳 null
+  app.get('/evals/reference', requireApprover, (_req, res) => {
+    res.json(service.getEvalReference())
   })
 
   // 檢索評估（同樣要寫在 /evals/:id 前面）：題目固定、跑得很快，所以直接算完回傳，不存紀錄

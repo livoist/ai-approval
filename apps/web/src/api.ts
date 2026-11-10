@@ -99,6 +99,8 @@ export const api = {
   retireGuideline: (id: string) => call<{ ok: true }>(`/guidelines/${id}/retire`, { method: 'POST' }),
   listEvalRuns: () => call<EvalRunSummary[]>('/evals'),
   getEvalRun: (id: string) => call<EvalRun>(`/evals/${id}`),
+  // Claude 參考評估：沒有的話是 null
+  getEvalReference: () => call<EvalRun | null>('/evals/reference'),
   startEval: () => call<EvalRun>('/evals', { method: 'POST' }),
   getEvalProgress: () => call<EvalProgress>('/evals/progress'),
   evaluateRetrieval: () => call<RetrievalEvalResult>('/evals/retrieval', { method: 'POST' }),

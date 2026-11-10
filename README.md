@@ -160,6 +160,7 @@ E2E 用真的瀏覽器跑完整流程：填單驗證、AI 預審、點引用高�
 - **前後端是同一個服務**：Express 的 API 掛在 `/api`，同時提供打包好的 Vue 頁面。只有一個網址，沒有跨網域問題，SSE 串流也不會被 serverless 平台切斷
 - **示範資料**：`DEMO=true` 時，啟動後自動放入各種狀態的申請單；資料只存在記憶體，服務休眠後喚醒就是一組全新的資料
 - **AI 使用上限**：`AI_DAILY_LIMIT` 控制每天最多呼叫 Claude 幾次，用完、或 Claude 出錯時，自動改用模擬審查員，demo 不會壞掉
+- **評估集不用 Claude**：`DEMO=true` 時評估集用模擬審查員，不消耗額度；Claude 的分數看隨程式部署的參考評估（`EVAL_REVIEWER=claude` 可以覆蓋）
 
 在 Render 選 **New → Blueprint** 連上這個 repo，再到服務的 Environment 頁面填入 `ANTHROPIC_API_KEY` 即可。
 
@@ -257,6 +258,8 @@ AI 的意見沒有標準答案，唯一可靠的判斷來自每天在簽核的�
 「AI 變好了」不能只靠感覺。[`evals.ts`](apps/server/src/evals.ts) 是一組答案已知的案例：哪些說明太簡略、應該提出意見，哪些雖然短但已經具體、不應該誤報。同一組題目跑兩次，一次不套用準則、一次套用，差多少就是準則帶來的效果。評估與真正的預審共用同一套準備流程（[`review-context.ts`](apps/server/src/review-context.ts)：規則 → 檢索 → 準則），分數才代表真實的表現。
 
 沒有 API key 時，模擬審查員看不懂準則的文字，只會在有準則時放寬那條規範的判斷標準。這是為了讓整個流程不花錢也能展示，畫面上也會註明；真正的效果要用 Claude 跑評估集。
+
+公開 demo 的評估集固定用模擬審查員：任何人都能按「執行評估」，一次就是 24 次審查，用 Claude 的話一個訪客就會用掉大半天的額度，其他人來試預審時只剩模擬審查員可用。真實的分數改成**參考評估**：在本機用 `pnpm eval:reference` 以 Claude 跑一次，結果存成 [`eval-reference.json`](apps/server/eval-reference.json) 隨程式部署，畫面上可以切換「Claude 參考結果」與「最近一次評估」。參考評估只用內建規範與固定的兩條準則，每次產生的條件一樣，換模型或改 prompt 之後重跑一次就能比較。
 
 ### 錯誤依種類用不同方式告訴使用者
 

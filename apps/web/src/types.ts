@@ -71,6 +71,7 @@ export type ReviewStreamEvent =
 export interface AppMeta {
   demo: boolean
   ai: { reviewer: string; used: number; limit: number } | null
+  evalReviewer?: string // 評估集用的審查員：公開 demo 是模擬審查員
 }
 
 export interface PolicyChunk {

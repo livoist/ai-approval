@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
 
 // E2E 用的 port 跟開發用的（3001、5173）錯開
@@ -34,6 +35,9 @@ export default defineConfig({
         DB_PATH: ':memory:', // 每次都從乾淨的資料開始
         MOCK_DELAY_MS: '50', // 串流還是一條一條出來，只是快很多
         ANTHROPIC_API_KEY: '', // 一律用 mock：測試不能花錢，結果也要固定
+        VOYAGE_API_KEY: '', // 檢索一律用 BM25：不呼叫外部服務
+        // 參考評估用固定的測試資料（用模擬審查員產生），不受實際的 eval-reference.json 影響
+        EVAL_REFERENCE_PATH: fileURLToPath(new URL('./fixtures/eval-reference.json', import.meta.url)),
       },
     },
     {

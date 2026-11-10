@@ -1,16 +1,16 @@
 import express from 'express'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp } from './app'
 import { createClaudeReviewer } from './claude-reviewer'
-import { createVoyageEmbedder, withEmbeddingCache } from './embedder'
 import { createLimitedReviewer, type LimitedReviewer } from './limited-reviewer'
 import { createRequestService } from './request-service'
-import { bm25Retriever, createHybridRetriever, createVectorRetriever } from './retrieval'
+import { createRetrievalFromEnv } from './retrieval-config'
 import { createMockReviewer, type Reviewer } from './reviewer'
 import { seedDemoData } from './seed'
 import { createSqliteStore } from './sqlite-store'
+import type { EvalRun } from './store'
 
 // 讀取 .env（Node 內建功能，不用另外裝 dotenv）；沒有這個檔案就略過
 // 已經存在的環境變數優先，所以部署平台或 E2E 設定的值不會被 .env 蓋掉
@@ -52,26 +52,27 @@ const seeded = DEMO ? await seedDemoData(store) : 0
 
 // ===== 組裝 =====
 // ===== 檢索 =====
-// 沒有 Voyage 的 API key：只用 BM25，所有功能照常
-// 有的話預設用向量檢索：檢索評估裡，向量在每一題的名次都不輸混合檢索（見 README「檢索」一節）
-// RETRIEVAL_METHOD=hybrid 可以改回 BM25 + 向量的混合檢索
-// 不管哪一種，embedding 服務出錯時，單次預審都會退回 BM25（review-context.ts）
-const embedder = env.VOYAGE_API_KEY
-  ? withEmbeddingCache(createVoyageEmbedder({ apiKey: env.VOYAGE_API_KEY, model: env.VOYAGE_MODEL ?? 'voyage-4-lite' }))
-  : undefined
-const retriever = !embedder
-  ? bm25Retriever
-  : env.RETRIEVAL_METHOD === 'hybrid'
-    ? createHybridRetriever(embedder)
-    : createVectorRetriever(embedder)
+// 規則寫在 retrieval-config.ts：產生參考評估的腳本也用同一套
+const { embedder, retriever } = createRetrievalFromEnv(env)
 
-const service = createRequestService(store, reviewer, { retriever, embedder })
+// ===== 評估集 =====
+// 公開 demo 預設用模擬審查員跑評估集：任何人都能按「執行評估」，不能讓一次評估就用掉當天的 AI 額度
+// 真實 AI 的分數改看 Claude 參考評估（pnpm eval:reference 產生）
+// EVAL_REVIEWER=claude 或 mock 可以覆蓋預設
+const evalReviewer =
+  env.EVAL_REVIEWER === 'claude' ? reviewer : env.EVAL_REVIEWER === 'mock' || DEMO ? mock : reviewer
+// EVAL_REFERENCE_PATH：E2E 測試指向自己的測試資料，不受實際的參考評估影響
+const REFERENCE_PATH = env.EVAL_REFERENCE_PATH ?? resolve(dirname(fileURLToPath(import.meta.url)), '../eval-reference.json')
+const evalReference = existsSync(REFERENCE_PATH) ? (JSON.parse(readFileSync(REFERENCE_PATH, 'utf-8')) as EvalRun) : null
+
+const service = createRequestService(store, reviewer, { retriever, embedder, evalReviewer, evalReference })
 const api = createApp(service, {
   meta: () => ({
     demo: DEMO,
     ai: limited
       ? { reviewer: reviewer.name, ...limited.usage() }
       : { reviewer: reviewer.name, used: 0, limit: 0 },
+    evalReviewer: evalReviewer.name,
   }),
 })
 
@@ -99,6 +100,7 @@ root.listen(PORT, () => {
   console.log(`伺服器已啟動：http://localhost:${PORT}`)
   console.log(`AI 審查員：${reviewer.name}${limited ? `（每日上限 ${limited.usage().limit} 次）` : ''}`)
   console.log(`檢索：${retriever.name}`)
+  console.log(`評估集審查員：${evalReviewer.name}${evalReference ? `（另有 ${evalReference.reviewer} 的參考評估）` : ''}`)
   console.log(`資料庫：${DB_PATH}`)
   if (seeded > 0) console.log(`已放入 ${seeded} 張示範申請單`)
   if (resumed > 0) console.log(`接續處理 ${resumed} 張預審中斷的申請單`)

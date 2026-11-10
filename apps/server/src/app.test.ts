@@ -211,6 +211,13 @@ describe('AI 調校 API', () => {
     await request(app).get(`/evals/${run.body.id}`).set(asManager).expect(200)
     await request(app).get('/evals/nope').set(asManager).expect(404)
   })
+
+  it('參考評估：沒有時回傳 null，不是被當成某一次評估的 id；申請人 → 403', async () => {
+    const app = newApp()
+    await request(app).get('/evals/reference').set(asAlice).expect(403)
+    const res = await request(app).get('/evals/reference').set(asManager).expect(200)
+    expect(res.body).toBeNull()
+  })
 })
 
 describe('檢索評估 API', () => {

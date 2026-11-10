@@ -62,6 +62,11 @@ export interface ServiceOptions {
   retriever?: Retriever
   // embedding 服務：有的話，檢索評估會多比較向量與混合檢索
   embedder?: Embedder
+  // 評估集用的審查員：沒給就跟預審用同一個
+  // 公開 demo 用模擬審查員：任何人都能按「執行評估」，不能讓一次評估就用掉當天的 AI 額度
+  evalReviewer?: Reviewer
+  // Claude 參考評估（eval-reference.json）：demo 的評估集用模擬審查員時，畫面上用它呈現真實 AI 的分數
+  evalReference?: EvalRun | null
 }
 
 // 業務邏輯層：只關心「規則」，完全不知道 HTTP、Express 的存在
@@ -472,14 +477,15 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     user: CurrentUser,
   ): Promise<{ ok: true; run: EvalRun } | { ok: false; reason: 'forbidden' | 'eval_running' | 'no_reviewer' }> {
     if (!isApproverRole(user.role)) return { ok: false, reason: 'forbidden' }
-    if (!reviewer) return { ok: false, reason: 'no_reviewer' }
+    const evalReviewer = options.evalReviewer ?? reviewer
+    if (!evalReviewer) return { ok: false, reason: 'no_reviewer' }
     if (evalRunning) return { ok: false, reason: 'eval_running' }
 
     evalRunning = true
     evalProgress = { done: 0, total: 0, startedAt: now().toISOString(), startedBy: user.id }
     try {
       const report = await runEval({
-        reviewer,
+        reviewer: evalReviewer,
         policiesFor: (type) => policyLibrary.forFormType(type),
         guidelines: store.listGuidelines(),
         now: now(),
@@ -490,7 +496,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
       })
       const run: EvalRun = {
         id: randomUUID(),
-        reviewer: reviewer.name,
+        reviewer: evalReviewer.name,
         guidelineIds: report.guidelines.map((g) => g.id),
         createdBy: user.id,
         createdAt: now().toISOString(),
@@ -570,6 +576,7 @@ export function createRequestService(store: Store, reviewer?: Reviewer, options:
     getEvalProgress: () => (evalProgress ? { running: true as const, ...evalProgress } : { running: false as const }),
     listEvalRuns,
     getEvalRun: (id: string) => store.listEvalRuns().find((r) => r.id === id),
+    getEvalReference: () => options.evalReference ?? null,
     importPolicyDoc,
     listPolicyDocs: () => policyLibrary.listDocs(),
     listPolicies: (type?: FormType) => (type ? policyLibrary.forFormType(type) : policyLibrary.all()),

@@ -135,4 +135,25 @@ describe('審查準則接回預審', () => {
     expect(run).toMatchObject({ reviewer: 'mock', createdBy: 'manager', baseline: { passed: 8 }, withGuidelines: { passed: 10 } })
     expect(service.getEvalRun(run!.id)!.report.cases).toHaveLength(12)
   })
+
+  it('評估集可以用另一個審查員：預審用 Claude，評估集用模擬審查員', async () => {
+    let claudeCalls = 0
+    const claude: Reviewer = {
+      name: 'claude-test',
+      async review(input, policies, options) {
+        claudeCalls++
+        return mockReviewer.review(input, policies, options)
+      },
+    }
+    const service = createRequestService(createStore(), claude, { evalReviewer: mockReviewer })
+    const result = await service.startEval(manager)
+    expect(result.ok && result.run.reviewer).toBe('mock')
+    expect(claudeCalls).toBe(0) // 一次都沒有用到預審的審查員
+  })
+
+  it('參考評估：有就回傳，沒有是 null', () => {
+    expect(createRequestService(createStore(), mockReviewer).getEvalReference()).toBeNull()
+    const reference = { id: 'reference', reviewer: 'claude-test', guidelineIds: [], createdBy: 'reference', createdAt: NOW.toISOString(), report: {} } as never
+    expect(createRequestService(createStore(), mockReviewer, { evalReference: reference }).getEvalReference()).toBe(reference)
+  })
 })

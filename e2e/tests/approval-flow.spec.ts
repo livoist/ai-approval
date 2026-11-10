@@ -342,6 +342,19 @@ test('錯誤提示：伺服器出錯時右上角顯示提示與錯誤編號；�
   await expect(page.getByTestId('toast')).toContainText('無法連線到伺服器')
 })
 
+test('評估集：還沒評估過時先顯示 Claude 參考結果，列出它套用的準則', async ({ page }) => {
+  await page.goto('/')
+  await switchUser(page, 'manager')
+  await page.getByRole('link', { name: 'AI 調校', exact: true }).click()
+
+  await expect(page.getByTestId('eval-view-reference')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('eval-reference-note')).toContainText('claude-e2e-fixture')
+  await expect(page.getByTestId('eval-reference-note')).toContainText('sop-3.2')
+  // 還沒有自己的評估，「最近一次評估」不能按
+  await expect(page.getByTestId('eval-view-latest')).toBeDisabled()
+  await expect(page.getByTestId('metric-passed').locator('[data-variant="with"]')).toHaveText('10 / 12')
+})
+
 // 放在最後：採用 sop-3.2 的準則之後，模擬審查員對維修單的判斷會放寬，會影響之後送出的單
 test('AI 調校：主管的理由採用為準則，評估集顯示套用後變好', async ({ page }) => {
   await createAndSubmit(page, '高壓・資料不全')
@@ -368,8 +381,10 @@ test('AI 調校：主管的理由採用為準則，評估集顯示套用後變�
   await page.getByRole('link', { name: 'AI 調校', exact: true }).click()
   await expect(page.getByTestId('guideline').filter({ hasText: note })).toBeVisible()
   await page.getByRole('button', { name: '執行評估' }).click()
+  // 跑完會切到這次的結果（跑之前顯示的是參考評估，數字可能剛好一樣，所以先確認切過來了）
+  await expect(page.getByTestId('eval-view-latest')).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 })
   const passed = page.getByTestId('metric-passed')
-  await expect(passed.locator('[data-variant="baseline"]')).toHaveText('8 / 12', { timeout: 15_000 })
+  await expect(passed.locator('[data-variant="baseline"]')).toHaveText('8 / 12')
   await expect(passed.locator('[data-variant="with"]')).toHaveText('10 / 12')
   await expect(page.getByTestId('eval-case')).toHaveCount(12)
 })
