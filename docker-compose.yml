@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------
+# 用 Docker Compose 在本機啟動 AI 預審簽核系統
+# 把原本要打在 docker run 後面的 -p、-e、-v 等設定寫成檔案
+#
+#   docker compose up --build   建立映像檔並啟動（改過程式碼後要加 --build）
+#   docker compose down         停止並刪除容器，資料還留在 volume 裡
+#   docker compose down -v      連 volume 一起刪除，下次啟動就是全新的資料
+# ---------------------------------------------------------------
+
+services:
+  app:
+    # 用專案根目錄的 Dockerfile 建立映像檔，並取名為 ai-approval
+    build: .
+    image: ai-approval
+
+    # 等同 docker run --init：讓 Ctrl + C 能正常停止
+    init: true
+
+    # 等同 -p 8080:3000：左邊是 Mac 的 port，右邊是容器裡的 port
+    ports:
+      - "8081:3000"
+
+    # 等同 -e：環境變數
+    environment:
+      DEMO: "true"
+      # 想讓容器裡的資料只存在記憶體（每次啟動都重置），把下一行的 # 拿掉
+      # DB_PATH: ":memory:"
+      # 想使用真的 Claude 審查：在根目錄的 .env 寫 ANTHROPIC_API_KEY=...（.env 不會進版控）
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+    # 等同 -v：把 volume 接到容器裡資料庫所在的資料夾
+    volumes:
+      - ai-approval-data:/app/apps/server/data
+
+volumes:
+  ai-approval-data:
+    # 固定名字，沿用剛才用 docker run 建立的同一個 volume
+    name: ai-approval-data

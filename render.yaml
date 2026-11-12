@@ -5,22 +5,15 @@
 services:
   - type: web
     name: ai-approval
-    runtime: node
+    runtime: docker
     plan: free
     region: singapore # 免費方案可選的機房中，離台灣最近的
     autoDeployTrigger: checksPass # CI(GitHub Actions)檢查通過才會觸發部署
-
-    # 1. 用 package.json 指定的 pnpm 版本安裝套件（--frozen-lockfile：版本跟本機完全一致）
-    # 2. 打包前端：產生 apps/web/dist，後端啟動時會一起提供這些頁面
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @ai-approval/web build
-    startCommand: pnpm --filter @ai-approval/server start
 
     # Render 用這個網址確認服務活著；回應不正常就不會切換到新版本
     healthCheckPath: /api/health
 
     envVars:
-      - key: NODE_VERSION
-        value: "22"
       # 公開 demo：啟動時放入示範資料，畫面上顯示示範環境提示
       - key: DEMO
         value: "true"

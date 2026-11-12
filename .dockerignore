@@ -1,0 +1,22 @@
+# 不要複製進映像檔的東西
+
+# 本機裝好的套件：裡面有針對 macOS 編譯的檔案（例如 better-sqlite3），
+# 放進 Linux 容器會壞掉，所以一律在容器裡重新安裝
+node_modules
+**/node_modules
+
+# 打包產物：容器裡會重新 build
+apps/web/dist
+
+# 機密與本機資料：API key、本機資料庫
+.env
+**/.env
+apps/server/data
+
+# 跟執行無關的檔案
+.git
+.DS_Store
+e2e/test-results
+e2e/playwright-report
+docs/demo.webm
+*.log

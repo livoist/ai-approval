@@ -11,6 +11,7 @@
     "dev:server": "pnpm --filter @ai-approval/server dev",
     "dev:web": "pnpm --filter @ai-approval/web dev",
     "e2e": "pnpm --filter @ai-approval/e2e e2e",
+    "check": "pnpm typecheck && pnpm test && pnpm e2e && docker build -t ai-approval .",
     "demo:record": "pnpm --filter @ai-approval/e2e demo",
     "eval:reference": "pnpm --filter @ai-approval/server eval:reference"
   },
