@@ -8,6 +8,7 @@ services:
     runtime: node
     plan: free
     region: singapore # 免費方案可選的機房中，離台灣最近的
+    autoDeployTrigger: checksPass # CI(GitHub Actions)檢查通過才會觸發部署
 
     # 1. 用 package.json 指定的 pnpm 版本安裝套件（--frozen-lockfile：版本跟本機完全一致）
     # 2. 打包前端：產生 apps/web/dist，後端啟動時會一起提供這些頁面
